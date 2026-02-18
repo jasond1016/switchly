@@ -46,6 +46,7 @@ switchly status
 switchly account add --id <id> --provider codex --access-token <token> [--refresh-token <token>] [--email <email>]
 switchly account list
 switchly account use --id <id>
+switchly account apply [--id <id>]
 switchly strategy set --value round-robin|fill-first
 switchly switch simulate-error --status 429 --message "quota exceeded"
 switchly oauth providers
@@ -69,5 +70,7 @@ switchly daemon restart
 - OAuth browser login flow is implemented for Codex (`/v1/oauth/start`, `/v1/oauth/callback`, `/v1/oauth/status`).
 - If your Windows blocks localhost callback port `1455`, use device auth: `switchly oauth login --provider codex --method device`.
 - `codex` refresh flow is implemented using `https://auth.openai.com/oauth/token`.
+- `account use` and automatic quota-based switching will apply the selected Codex account tokens to `~/.codex/auth.json`.
+- `account apply` can be used to force re-apply the active account (or a specific account with `--id`).
 - Daemon API includes `/v1/daemon/info`, `/v1/daemon/shutdown`, `/v1/daemon/restart`.
 - For `go run`, daemon API restart may be unavailable unless `switchlyd` is started with `--restart-cmd`.

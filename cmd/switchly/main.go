@@ -123,6 +123,34 @@ func runAccount(c *apiClient, args []string) error {
 			return err
 		}
 		return printJSON(out)
+	case "apply":
+		fs := flag.NewFlagSet("account apply", flag.ContinueOnError)
+		id := fs.String("id", "", "account id (default: current active account)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		targetID := strings.TrimSpace(*id)
+		if targetID == "" {
+			var status struct {
+				ActiveAccountID string `json:"active_account_id"`
+			}
+			if err := c.get("/v1/status", &status); err != nil {
+				return err
+			}
+			targetID = strings.TrimSpace(status.ActiveAccountID)
+			if targetID == "" {
+				return fmt.Errorf("no active account configured; pass --id explicitly")
+			}
+		}
+		var out map[string]interface{}
+		if err := c.post(fmt.Sprintf("/v1/accounts/%s/activate", targetID), map[string]string{}, &out); err != nil {
+			return err
+		}
+		return printJSON(map[string]interface{}{
+			"status":     "ok",
+			"account_id": targetID,
+			"action":     "applied",
+		})
 	default:
 		return fmt.Errorf("unknown account command: %s", args[0])
 	}
@@ -680,6 +708,7 @@ func printUsage() {
 	fmt.Println("  account add --id <id> --provider codex --access-token <token> [--refresh-token <token>] [--email <email>]")
 	fmt.Println("  account list")
 	fmt.Println("  account use --id <id>")
+	fmt.Println("  account apply [--id <id>]")
 	fmt.Println("  strategy set --value round-robin|fill-first")
 	fmt.Println("  switch simulate-error --status 429 --message \"quota exceeded\"")
 	fmt.Println("  oauth providers")

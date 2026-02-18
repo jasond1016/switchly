@@ -43,6 +43,18 @@ var (
 	ErrPersistState   = errors.New("persist state failed")
 )
 
+type ActiveAccountApplier interface {
+	Apply(ctx context.Context, account model.Account, secrets model.AuthSecrets) error
+}
+
+type ManagerOption func(*Manager)
+
+func WithActiveAccountApplier(applier ActiveAccountApplier) ManagerOption {
+	return func(m *Manager) {
+		m.applier = applier
+	}
+}
+
 type stateStore interface {
 	Load() (model.AppState, error)
 	Save(state model.AppState) error
@@ -52,15 +64,22 @@ type Manager struct {
 	mu         sync.Mutex
 	stateStore stateStore
 	secrets    secrets.Store
+	applier    ActiveAccountApplier
 	httpClient *http.Client
 }
 
-func NewManager(stateStore stateStore, secretStore secrets.Store) *Manager {
-	return &Manager{
+func NewManager(stateStore stateStore, secretStore secrets.Store, opts ...ManagerOption) *Manager {
+	m := &Manager{
 		stateStore: stateStore,
 		secrets:    secretStore,
 		httpClient: &http.Client{Timeout: 20 * time.Second},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(m)
+		}
+	}
+	return m
 }
 
 func (m *Manager) AddAccount(ctx context.Context, in AddAccountInput) (model.Account, error) {
@@ -143,7 +162,6 @@ func (m *Manager) ListAccounts(ctx context.Context) ([]model.Account, error) {
 }
 
 func (m *Manager) SetActiveAccount(ctx context.Context, accountID string) error {
-	_ = ctx
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -160,10 +178,25 @@ func (m *Manager) SetActiveAccount(ctx context.Context, accountID string) error 
 		return fmt.Errorf("account %s is not ready", accountID)
 	}
 
+	prevActiveID := state.ActiveAccountID
+	prevAcct, hadPrev := state.Accounts[prevActiveID]
+
+	if err := m.applyAccount(ctx, acct); err != nil {
+		return fmt.Errorf("apply account %s: %w", accountID, err)
+	}
+
 	state.ActiveAccountID = accountID
 	acct.UpdatedAt = time.Now().UTC()
 	state.Accounts[accountID] = acct
-	return m.stateStore.Save(state)
+	if err := m.stateStore.Save(state); err != nil {
+		if hadPrev && prevActiveID != accountID {
+			if rollbackErr := m.applyAccount(ctx, prevAcct); rollbackErr != nil {
+				return fmt.Errorf("save state failed: %v (apply rollback failed: %v)", err, rollbackErr)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) SetStrategy(ctx context.Context, strategy model.RoutingStrategy) error {
@@ -256,6 +289,14 @@ func (m *Manager) HandleQuotaError(ctx context.Context, statusCode int, errorMes
 		acct.Status = model.AccountReady
 		acct.LastError = ""
 		acct.UpdatedAt = time.Now().UTC()
+
+		if err := m.applyAccount(ctx, acct); err != nil {
+			acct.LastError = err.Error()
+			acct.UpdatedAt = time.Now().UTC()
+			state.Accounts[accountID] = acct
+			continue
+		}
+
 		state.Accounts[accountID] = acct
 		state.ActiveAccountID = accountID
 
@@ -275,6 +316,17 @@ func (m *Manager) HandleQuotaError(ctx context.Context, statusCode int, errorMes
 		return SwitchDecision{}, err
 	}
 	return SwitchDecision{Switched: false, FromAccountID: activeID, Reason: "no-available-account"}, nil
+}
+
+func (m *Manager) applyAccount(ctx context.Context, account model.Account) error {
+	if m.applier == nil {
+		return nil
+	}
+	secretsData, err := m.secrets.Get(account.ID)
+	if err != nil {
+		return err
+	}
+	return m.applier.Apply(ctx, account, secretsData)
 }
 
 func orderedCandidates(state model.AppState, activeID string) []string {

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"switchly/internal/codexauth"
 	"switchly/internal/core"
 	"switchly/internal/oauth"
 	"switchly/internal/secrets"
@@ -128,7 +129,8 @@ func main() {
 		log.Fatalf("init state store: %v", err)
 	}
 	secretStore := secrets.NewDefaultStore()
-	manager := core.NewManager(stateStore, secretStore)
+	authApplier := codexauth.NewDefaultFileApplier()
+	manager := core.NewManager(stateStore, secretStore, core.WithActiveAccountApplier(authApplier))
 	oauthService := oauth.NewService(manager, *publicBaseURL)
 
 	httpServer := &http.Server{

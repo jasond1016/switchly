@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"switchly/internal/model"
 )
@@ -108,6 +109,104 @@ func TestAddAccountRollsBackSecretsWhenStateSaveFails(t *testing.T) {
 	}
 }
 
+func TestSetActiveAccountAppliesTokens(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "codex:old@example.com",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"codex:old@example.com": {ID: "codex:old@example.com", Provider: "codex", Status: model.AccountReady},
+				"codex:new@example.com": {ID: "codex:new@example.com", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"codex:old@example.com": {AccessToken: "old"},
+			"codex:new@example.com": {AccessToken: "new"},
+		},
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	if err := mgr.SetActiveAccount(context.Background(), "codex:new@example.com"); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+	if state.state.ActiveAccountID != "codex:new@example.com" {
+		t.Fatalf("active account mismatch: %s", state.state.ActiveAccountID)
+	}
+	if applier.calls != 1 {
+		t.Fatalf("expected one apply call, got %d", applier.calls)
+	}
+	if applier.lastAccountID != "codex:new@example.com" {
+		t.Fatalf("applied wrong account: %s", applier.lastAccountID)
+	}
+}
+
+func TestSetActiveAccountDoesNotChangeStateWhenApplyFails(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "codex:old@example.com",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"codex:old@example.com": {ID: "codex:old@example.com", Provider: "codex", Status: model.AccountReady},
+				"codex:new@example.com": {ID: "codex:new@example.com", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"codex:old@example.com": {AccessToken: "old"},
+			"codex:new@example.com": {AccessToken: "new"},
+		},
+	}
+	applier := &fakeApplier{applyErr: errors.New("cannot write codex auth")}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	err := mgr.SetActiveAccount(context.Background(), "codex:new@example.com")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if state.state.ActiveAccountID != "codex:old@example.com" {
+		t.Fatalf("active account should remain old, got %s", state.state.ActiveAccountID)
+	}
+}
+
+func TestHandleQuotaErrorAppliesSwitchedAccount(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+				"B": {ID: "B", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+		},
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	decision, err := mgr.HandleQuotaError(context.Background(), 429, "quota exceeded")
+	if err != nil {
+		t.Fatalf("handle quota: %v", err)
+	}
+	if !decision.Switched || decision.ToAccountID != "B" {
+		t.Fatalf("unexpected decision: %#v", decision)
+	}
+	if applier.lastAccountID != "B" {
+		t.Fatalf("expected apply B, got %s", applier.lastAccountID)
+	}
+}
+
 type fakeStateStore struct {
 	state     model.AppState
 	saveErr   error
@@ -135,6 +234,18 @@ type fakeSecretStore struct {
 	putCalls    int
 	getCalls    int
 	deleteCalls int
+}
+
+type fakeApplier struct {
+	calls         int
+	lastAccountID string
+	applyErr      error
+}
+
+func (a *fakeApplier) Apply(_ context.Context, account model.Account, _ model.AuthSecrets) error {
+	a.calls++
+	a.lastAccountID = account.ID
+	return a.applyErr
 }
 
 func (s *fakeSecretStore) Put(accountID string, secrets model.AuthSecrets) error {
