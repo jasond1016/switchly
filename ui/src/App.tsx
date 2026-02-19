@@ -58,6 +58,8 @@ type DaemonInfo = {
   default_restart_cmd?: string;
 };
 
+type QuotaTone = "good" | "warn" | "danger";
+
 function isZeroTime(value?: string): boolean {
   if (!value) {
     return true;
@@ -74,6 +76,61 @@ function fmtTime(value?: string): string {
     return "-";
   }
   return d.toLocaleString();
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  const rounded = Math.round(value);
+  if (rounded < 0) {
+    return 0;
+  }
+  if (rounded > 100) {
+    return 100;
+  }
+  return rounded;
+}
+
+function remainingPercent(usedPercent: number): number {
+  return clampPercent(100 - clampPercent(usedPercent));
+}
+
+function toneFromRemaining(remaining: number): QuotaTone {
+  if (remaining >= 60) {
+    return "good";
+  }
+  if (remaining >= 30) {
+    return "warn";
+  }
+  return "danger";
+}
+
+function fmtResetHint(value: string | undefined, nowMs: number): string {
+  if (isZeroTime(value)) {
+    return "重置时间未获取";
+  }
+  const d = new Date(value ?? "");
+  if (Number.isNaN(d.getTime())) {
+    return "重置时间未获取";
+  }
+
+  const delta = d.getTime() - nowMs;
+  if (delta <= 0) {
+    return "即将重置";
+  }
+
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (delta < hour) {
+    return `${Math.max(1, Math.ceil(delta / minute))}分钟后`;
+  }
+  if (delta < day) {
+    return `${Math.ceil(delta / hour)}小时后`;
+  }
+  return `${Math.ceil(delta / day)}天后`;
 }
 
 function deriveDaemonParams(baseURL: string): { addr: string; publicBaseURL: string } {
@@ -104,6 +161,7 @@ function App() {
   const [daemonOutput, setDaemonOutput] = useState("");
   const [simBusy, setSimBusy] = useState(false);
   const [quotaSyncBusy, setQuotaSyncBusy] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const pollRef = useRef<number | null>(null);
 
   const daemonParams = useMemo(() => deriveDaemonParams(baseURL), [baseURL]);
@@ -162,6 +220,15 @@ function App() {
       }
     };
   }, [refreshAll]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const startOAuthPolling = useCallback(
     (state: string) => {
@@ -381,7 +448,7 @@ function App() {
                 <th>Last Applied</th>
                 <th>Access Expiry</th>
                 <th>Last Refresh</th>
-                <th>Quota</th>
+                <th>Quota (Remaining)</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -398,11 +465,34 @@ function App() {
                   <td>{fmtTime(acc.last_applied_at)}</td>
                   <td>{fmtTime(acc.access_expires_at)}</td>
                   <td>{fmtTime(acc.last_refresh_at)}</td>
-                  <td>
-                    <div>
-                      S {acc.quota.session.used_percent}% / W {acc.quota.weekly.used_percent}%
+                  <td className="quota-cell">
+                    <div className="quota-grid">
+                      {[
+                        { name: "Session Quota", window: acc.quota.session },
+                        { name: "Weekly Quota", window: acc.quota.weekly },
+                      ].map((item) => {
+                        const used = clampPercent(item.window.used_percent);
+                        const remaining = remainingPercent(used);
+                        const tone = toneFromRemaining(remaining);
+                        return (
+                          <div key={item.name} className="quota-item">
+                            <div className="quota-item-head">
+                              <span className="quota-item-name">{item.name}</span>
+                              <strong className={`quota-item-remaining tone-${tone}`}>剩余 {remaining}%</strong>
+                            </div>
+                            <div className="quota-track">
+                              <div className={`quota-fill tone-${tone}`} style={{ width: `${remaining}%` }} />
+                            </div>
+                            <div className="quota-item-meta">
+                              <span>已用 {used}%</span>
+                              <span>重置于 {fmtResetHint(item.window.reset_at, nowMs)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <small>Updated: {fmtTime(acc.quota.last_updated)}</small>
+                    {acc.quota.limit_reached && <div className="quota-limit">额度已用尽，请切换账号或等待重置</div>}
+                    <small className="quota-updated">Last updated: {fmtTime(acc.quota.last_updated)}</small>
                   </td>
                   <td>
                     <button

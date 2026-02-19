@@ -185,6 +185,100 @@ th {
   background: linear-gradient(180deg, #dff8ec 0%, #ccefdc 100%);
 }
 
+.quota-cell {
+  min-width: 340px;
+}
+
+.quota-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.quota-item {
+  border: 1px solid #dceee7;
+  border-radius: 10px;
+  background: #f7fdfa;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.quota-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.quota-item-name {
+  color: #355a51;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quota-item-remaining {
+  font-size: 13px;
+}
+
+.quota-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #e8f2ee;
+  overflow: hidden;
+}
+
+.quota-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.tone-good {
+  color: #1f7c57;
+}
+
+.quota-fill.tone-good {
+  background: linear-gradient(90deg, #39bf86 0%, #1f9b67 100%);
+}
+
+.tone-warn {
+  color: #a46307;
+}
+
+.quota-fill.tone-warn {
+  background: linear-gradient(90deg, #ffcb62 0%, #f0a93d 100%);
+}
+
+.tone-danger {
+  color: #b23a2f;
+}
+
+.quota-fill.tone-danger {
+  background: linear-gradient(90deg, #ff978d 0%, #ed5f52 100%);
+}
+
+.quota-item-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #516d65;
+  font-size: 12px;
+}
+
+.quota-limit {
+  margin-top: 8px;
+  color: #9a2d22;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quota-updated {
+  display: block;
+  margin-top: 6px;
+  color: #5f7971;
+  font-size: 11px;
+}
+
 .two-col {
   display: grid;
   gap: 16px;
