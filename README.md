@@ -13,6 +13,7 @@ Current MVP scope:
 
 - `switchlyd`: local daemon (`http://127.0.0.1:7777` by default)
 - `switchly`: CLI client
+- `ui/`: Tauri desktop UI (React + TypeScript)
 
 ## Quick start
 
@@ -58,6 +59,14 @@ switchly daemon info
 switchly daemon stop
 switchly daemon start
 switchly daemon restart
+```
+
+## Desktop UI (Tauri)
+
+```powershell
+cd ui
+pnpm install
+pnpm tauri dev
 ```
 
 ## Data locations

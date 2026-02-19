@@ -32,6 +32,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/strategy", s.handleStrategy)
 	mux.HandleFunc("/v1/accounts", s.handleAccounts)
 	mux.HandleFunc("/v1/accounts/", s.handleAccountDetail)
+	mux.HandleFunc("/v1/quota/sync", s.handleQuotaSync)
 	mux.HandleFunc("/v1/switch/on-error", s.handleSwitchOnError)
 	mux.HandleFunc("/v1/oauth/providers", s.handleOAuthProviders)
 	mux.HandleFunc("/v1/oauth/start", s.handleOAuthStart)
@@ -41,7 +42,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/daemon/info", s.handleDaemonInfo)
 	mux.HandleFunc("/v1/daemon/shutdown", s.handleDaemonShutdown)
 	mux.HandleFunc("/v1/daemon/restart", s.handleDaemonRestart)
-	return loggingMiddleware(mux)
+	return loggingMiddleware(corsMiddleware(mux))
 }
 
 func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +210,27 @@ func (s *APIServer) handleSwitchOnError(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, decision)
 }
 
+func (s *APIServer) handleQuotaSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	var req struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	result, err := s.manager.SyncQuotaFromCodexLogs(r.Context(), req.AccountID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *APIServer) handleOAuthProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
@@ -356,5 +378,18 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		_ = start
+	})
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }

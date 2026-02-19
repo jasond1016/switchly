@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"switchly/internal/model"
+	"switchly/internal/quota"
 )
 
 func TestShouldSwitch(t *testing.T) {
@@ -142,6 +144,9 @@ func TestSetActiveAccountAppliesTokens(t *testing.T) {
 	if applier.lastAccountID != "codex:new@example.com" {
 		t.Fatalf("applied wrong account: %s", applier.lastAccountID)
 	}
+	if state.state.Accounts["codex:new@example.com"].LastAppliedAt.IsZero() {
+		t.Fatal("expected last_applied_at to be set")
+	}
 }
 
 func TestSetActiveAccountDoesNotChangeStateWhenApplyFails(t *testing.T) {
@@ -204,6 +209,155 @@ func TestHandleQuotaErrorAppliesSwitchedAccount(t *testing.T) {
 	}
 	if applier.lastAccountID != "B" {
 		t.Fatalf("expected apply B, got %s", applier.lastAccountID)
+	}
+	if state.state.Accounts["B"].LastAppliedAt.IsZero() {
+		t.Fatal("expected switched account last_applied_at to be set")
+	}
+}
+
+func TestSyncQuotaFromCodexLogsUsesWarmupWhenSnapshotStale(t *testing.T) {
+	lastApplied := time.Date(2026, 2, 19, 12, 0, 0, 0, time.UTC)
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {
+					ID:            "A",
+					Provider:      "codex",
+					Status:        model.AccountReady,
+					LastAppliedAt: lastApplied,
+				},
+			},
+		},
+	}
+	warmupCalls := 0
+	mgr := NewManager(
+		state,
+		&fakeSecretStore{},
+		WithQuotaSnapshotSource(func() (quota.Snapshot, error) {
+			return quota.Snapshot{
+				SourceTimestamp: lastApplied.Add(-1 * time.Minute),
+				Session:         &quota.Window{UsedPercent: 42},
+			}, nil
+		}),
+		WithQuotaWarmupRunner(func(ctx context.Context) (string, error) {
+			warmupCalls++
+			return "thread-stale", nil
+		}),
+		WithQuotaSnapshotByThreadSource(func(threadID string) (quota.Snapshot, error) {
+			if threadID != "thread-stale" {
+				t.Fatalf("unexpected thread id: %s", threadID)
+			}
+			return quota.Snapshot{
+				SourceTimestamp: lastApplied.Add(2 * time.Minute),
+				Session:         &quota.Window{UsedPercent: 21},
+				Weekly:          &quota.Window{UsedPercent: 33},
+			}, nil
+		}),
+	)
+
+	result, err := mgr.SyncQuotaFromCodexLogs(context.Background(), "")
+	if err != nil {
+		t.Fatalf("expected warmup sync success, got err: %v", err)
+	}
+	if warmupCalls != 1 {
+		t.Fatalf("expected warmup call once, got %d", warmupCalls)
+	}
+	if result.Quota.Session.UsedPercent != 21 || result.Quota.Weekly.UsedPercent != 33 {
+		t.Fatalf("unexpected quota result: %#v", result.Quota)
+	}
+}
+
+func TestSyncQuotaFromCodexLogsReturnsErrorWhenWarmupFails(t *testing.T) {
+	lastApplied := time.Date(2026, 2, 19, 12, 0, 0, 0, time.UTC)
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {
+					ID:            "A",
+					Provider:      "codex",
+					Status:        model.AccountReady,
+					LastAppliedAt: lastApplied,
+				},
+			},
+		},
+	}
+	mgr := NewManager(
+		state,
+		&fakeSecretStore{},
+		WithQuotaSnapshotSource(func() (quota.Snapshot, error) {
+			return quota.Snapshot{
+				SourceTimestamp: lastApplied.Add(-1 * time.Minute),
+				Session:         &quota.Window{UsedPercent: 42},
+			}, nil
+		}),
+		WithQuotaWarmupRunner(func(ctx context.Context) (string, error) {
+			return "", errors.New("warmup failed")
+		}),
+	)
+
+	_, err := mgr.SyncQuotaFromCodexLogs(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected stale snapshot error, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "warmup failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSyncQuotaFromCodexLogsAppliesFreshSnapshot(t *testing.T) {
+	lastApplied := time.Date(2026, 2, 19, 12, 0, 0, 0, time.UTC)
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {
+					ID:            "A",
+					Provider:      "codex",
+					Status:        model.AccountReady,
+					LastAppliedAt: lastApplied,
+				},
+			},
+		},
+	}
+	srcTime := lastApplied.Add(2 * time.Minute)
+	warmupCalls := 0
+	mgr := NewManager(state, &fakeSecretStore{}, WithQuotaSnapshotSource(func() (quota.Snapshot, error) {
+		return quota.Snapshot{
+			SourceTimestamp: srcTime,
+			Session:         &quota.Window{UsedPercent: 11, ResetAt: time.Date(2026, 2, 19, 15, 0, 0, 0, time.UTC)},
+			Weekly:          &quota.Window{UsedPercent: 22, ResetAt: time.Date(2026, 2, 23, 0, 0, 0, 0, time.UTC)},
+		}, nil
+	}), WithQuotaWarmupRunner(func(ctx context.Context) (string, error) {
+		warmupCalls++
+		return "", nil
+	}))
+
+	result, err := mgr.SyncQuotaFromCodexLogs(context.Background(), "")
+	if err != nil {
+		t.Fatalf("sync quota: %v", err)
+	}
+	if warmupCalls != 0 {
+		t.Fatalf("warmup should not run for fresh snapshot, got %d calls", warmupCalls)
+	}
+	if result.AccountID != "A" {
+		t.Fatalf("unexpected account id: %s", result.AccountID)
+	}
+	if result.SourceTimestamp != srcTime {
+		t.Fatalf("unexpected source timestamp: %s", result.SourceTimestamp)
+	}
+	if got := state.state.Accounts["A"].Quota.Session.UsedPercent; got != 11 {
+		t.Fatalf("unexpected session percent: %d", got)
+	}
+	if got := state.state.Accounts["A"].Quota.Weekly.UsedPercent; got != 22 {
+		t.Fatalf("unexpected weekly percent: %d", got)
 	}
 }
 

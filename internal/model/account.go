@@ -34,6 +34,7 @@ type Account struct {
 	Provider         string        `json:"provider"`
 	Email            string        `json:"email,omitempty"`
 	Status           AccountStatus `json:"status"`
+	LastAppliedAt    time.Time     `json:"last_applied_at,omitempty"`
 	AccessExpiresAt  time.Time     `json:"access_expires_at,omitempty"`
 	RefreshExpiresAt time.Time     `json:"refresh_expires_at,omitempty"`
 	LastRefreshAt    time.Time     `json:"last_refresh_at,omitempty"`
