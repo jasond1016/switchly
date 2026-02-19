@@ -36,6 +36,8 @@ func main() {
 		must(runStatus(client))
 	case "account":
 		must(runAccount(client, os.Args[2:]))
+	case "quota":
+		must(runQuota(client, os.Args[2:]))
 	case "switch":
 		must(runSwitch(client, os.Args[2:]))
 	case "strategy":
@@ -173,6 +175,38 @@ func runSwitch(c *apiClient, args []string) error {
 		return err
 	}
 	return printJSON(out)
+}
+
+func runQuota(c *apiClient, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("missing quota command")
+	}
+
+	switch args[0] {
+	case "sync":
+		fs := flag.NewFlagSet("quota sync", flag.ContinueOnError)
+		accountID := fs.String("id", "", "account id (default: active account)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		payload := map[string]string{}
+		if strings.TrimSpace(*accountID) != "" {
+			payload["account_id"] = strings.TrimSpace(*accountID)
+		}
+		var out map[string]interface{}
+		if err := c.post("/v1/quota/sync", payload, &out); err != nil {
+			return err
+		}
+		return printJSON(out)
+	case "sync-all":
+		var out map[string]interface{}
+		if err := c.post("/v1/quota/sync-all", map[string]string{}, &out); err != nil {
+			return err
+		}
+		return printJSON(out)
+	default:
+		return fmt.Errorf("unknown quota command: %s", args[0])
+	}
 }
 
 func runStrategy(c *apiClient, args []string) error {
@@ -709,6 +743,8 @@ func printUsage() {
 	fmt.Println("  account list")
 	fmt.Println("  account use --id <id>")
 	fmt.Println("  account apply [--id <id>]")
+	fmt.Println("  quota sync [--id <id>]")
+	fmt.Println("  quota sync-all")
 	fmt.Println("  strategy set --value round-robin|fill-first")
 	fmt.Println("  switch simulate-error --status 429 --message \"quota exceeded\"")
 	fmt.Println("  oauth providers")

@@ -5,7 +5,7 @@ This directory contains the first desktop UI shell for Switchly.
 ## What it includes
 
 - Dashboard + accounts + OAuth + daemon panels
-- Account quota sync from OpenAI usage API (`POST /v1/quota/sync`)
+- Account quota sync from OpenAI usage API (`POST /v1/quota/sync`, `POST /v1/quota/sync-all`)
 - Quota refresh modes: manual button, periodic auto-refresh, and event-trigger refresh (OAuth success / account switch / daemon start-restart)
 - Direct calls to `switchlyd` HTTP APIs (`/v1/status`, `/v1/accounts/*`, `/v1/oauth/*`, `/v1/daemon/*`)
 - Tauri commands to run daemon lifecycle via CLI:

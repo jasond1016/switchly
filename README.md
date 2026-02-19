@@ -48,6 +48,8 @@ switchly account add --id <id> --provider codex --access-token <token> [--refres
 switchly account list
 switchly account use --id <id>
 switchly account apply [--id <id>]
+switchly quota sync [--id <id>]
+switchly quota sync-all
 switchly strategy set --value round-robin|fill-first
 switchly switch simulate-error --status 429 --message "quota exceeded"
 switchly oauth providers

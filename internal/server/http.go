@@ -33,6 +33,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/accounts", s.handleAccounts)
 	mux.HandleFunc("/v1/accounts/", s.handleAccountDetail)
 	mux.HandleFunc("/v1/quota/sync", s.handleQuotaSync)
+	mux.HandleFunc("/v1/quota/sync-all", s.handleQuotaSyncAll)
 	mux.HandleFunc("/v1/switch/on-error", s.handleSwitchOnError)
 	mux.HandleFunc("/v1/oauth/providers", s.handleOAuthProviders)
 	mux.HandleFunc("/v1/oauth/start", s.handleOAuthStart)
@@ -224,6 +225,20 @@ func (s *APIServer) handleQuotaSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := s.manager.SyncQuotaFromCodexAPI(r.Context(), req.AccountID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *APIServer) handleQuotaSyncAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+
+	result, err := s.manager.SyncAllQuotasFromCodexAPI(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

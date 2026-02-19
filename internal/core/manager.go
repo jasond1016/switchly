@@ -45,6 +45,22 @@ type QuotaSyncResult struct {
 	SourceTimestamp time.Time           `json:"source_timestamp"`
 }
 
+type QuotaSyncAllItem struct {
+	AccountID string           `json:"account_id"`
+	Success   bool             `json:"success"`
+	Result    *QuotaSyncResult `json:"result,omitempty"`
+	Error     string           `json:"error,omitempty"`
+}
+
+type QuotaSyncAllResult struct {
+	Total      int                `json:"total"`
+	Succeeded  int                `json:"succeeded"`
+	Failed     int                `json:"failed"`
+	Results    []QuotaSyncAllItem `json:"results"`
+	StartedAt  time.Time          `json:"started_at"`
+	FinishedAt time.Time          `json:"finished_at"`
+}
+
 var (
 	ErrPersistSecrets = errors.New("persist secrets failed")
 	ErrPersistState   = errors.New("persist state failed")
@@ -349,6 +365,43 @@ func (m *Manager) SyncQuotaFromCodexAPI(ctx context.Context, accountID string) (
 	}, nil
 }
 
+func (m *Manager) SyncAllQuotasFromCodexAPI(ctx context.Context) (QuotaSyncAllResult, error) {
+	startedAt := time.Now().UTC()
+
+	accountIDs, err := m.sortedAccountIDs()
+	if err != nil {
+		return QuotaSyncAllResult{}, err
+	}
+
+	out := QuotaSyncAllResult{
+		Total:     len(accountIDs),
+		Results:   make([]QuotaSyncAllItem, 0, len(accountIDs)),
+		StartedAt: startedAt,
+	}
+
+	for _, accountID := range accountIDs {
+		item := QuotaSyncAllItem{
+			AccountID: accountID,
+		}
+
+		result, err := m.SyncQuotaFromCodexAPI(ctx, accountID)
+		if err != nil {
+			item.Success = false
+			item.Error = err.Error()
+			out.Failed++
+		} else {
+			item.Success = true
+			item.Result = &result
+			out.Succeeded++
+		}
+
+		out.Results = append(out.Results, item)
+	}
+
+	out.FinishedAt = time.Now().UTC()
+	return out, nil
+}
+
 func (m *Manager) HandleQuotaError(ctx context.Context, statusCode int, errorMessage string) (SwitchDecision, error) {
 	if !shouldSwitch(statusCode, errorMessage) {
 		return SwitchDecision{Switched: false, Reason: "not-switchable-error"}, nil
@@ -453,6 +506,23 @@ func orderedCandidates(state model.AppState, activeID string) []string {
 	// round-robin fallback: deterministic by ID for now.
 	sort.Strings(ids)
 	return ids
+}
+
+func (m *Manager) sortedAccountIDs() ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state, err := m.stateStore.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(state.Accounts))
+	for id := range state.Accounts {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func shouldSwitch(statusCode int, message string) bool {

@@ -41,6 +41,12 @@ type StatusSnapshot = {
   accounts: Account[];
 };
 
+type QuotaSyncAllResponse = {
+  total: number;
+  succeeded: number;
+  failed: number;
+};
+
 type OAuthSession = {
   state: string;
   provider: string;
@@ -175,6 +181,7 @@ function App() {
   const [daemonOutput, setDaemonOutput] = useState("");
   const [simBusy, setSimBusy] = useState(false);
   const [quotaSyncBusy, setQuotaSyncBusy] = useState(false);
+  const [quotaSyncAllBusy, setQuotaSyncAllBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [quotaRefreshCadence, setQuotaRefreshCadence] = useState<RefreshCadence>(() => {
     const raw = localStorage.getItem(QUOTA_REFRESH_CADENCE_KEY);
@@ -410,6 +417,35 @@ function App() {
     await runQuotaSync({ showBusy: true, silent: false });
   }, [runQuotaSync]);
 
+  const onSyncQuotaAll = useCallback(async () => {
+    if (quotaSyncInFlightRef.current) {
+      return;
+    }
+    quotaSyncInFlightRef.current = true;
+    setQuotaSyncAllBusy(true);
+    setError("");
+    try {
+      const out = await apiRequest<QuotaSyncAllResponse>("/v1/quota/sync-all", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await loadStatus();
+      quotaSyncFailureCountRef.current = out.failed > 0 ? quotaSyncFailureCountRef.current : 0;
+      quotaSyncBackoffUntilRef.current = 0;
+      if (out.failed > 0) {
+        setError(`Quota sync-all finished: ${out.succeeded} succeeded, ${out.failed} failed.`);
+      }
+    } catch (e) {
+      quotaSyncFailureCountRef.current += 1;
+      const backoffMinutes = Math.min(15, 2 ** (quotaSyncFailureCountRef.current - 1));
+      quotaSyncBackoffUntilRef.current = Date.now() + backoffMinutes * 60_000;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      quotaSyncInFlightRef.current = false;
+      setQuotaSyncAllBusy(false);
+    }
+  }, [apiRequest, loadStatus]);
+
   useEffect(() => {
     const selected = REFRESH_CADENCE_OPTIONS.find((item) => item.value === quotaRefreshCadence);
     if (!selected || selected.intervalMs === null) {
@@ -526,8 +562,11 @@ function App() {
               ))}
             </select>
           </label>
-          <button onClick={() => void onSyncQuota()} disabled={quotaSyncBusy}>
+          <button onClick={() => void onSyncQuota()} disabled={quotaSyncBusy || quotaSyncAllBusy}>
             {quotaSyncBusy ? "Syncing Quota..." : "Sync Quota (OpenAI API)"}
+          </button>
+          <button onClick={() => void onSyncQuotaAll()} disabled={quotaSyncBusy || quotaSyncAllBusy}>
+            {quotaSyncAllBusy ? "Syncing All..." : "Sync All Quotas"}
           </button>
           <button onClick={() => void onSimulateLimit()} disabled={simBusy}>
             {simBusy ? "Switching..." : "Simulate Limit Error"}

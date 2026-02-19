@@ -348,6 +348,92 @@ func TestSyncQuotaFromCodexAPIMarksNeedReauthWhenRefreshFails(t *testing.T) {
 	}
 }
 
+func TestSyncAllQuotasFromCodexAPIContinuesOnPerAccountFailures(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+				"B": {ID: "B", Provider: "codex", Status: model.AccountReady},
+				"C": {ID: "C", Provider: "other", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a", AccountID: "acct-a", AccessExpiresAt: now.Add(5 * time.Minute)},
+			"B": {AccessToken: "token-b", AccountID: "acct-b", AccessExpiresAt: now.Add(5 * time.Minute)},
+		},
+	}
+
+	mgr := NewManager(
+		state,
+		secrets,
+		WithCodexQuotaFetcher(func(ctx context.Context, httpClient *http.Client, accessToken, accountID string) (quota.Snapshot, error) {
+			switch accountID {
+			case "acct-a":
+				return quota.Snapshot{Session: &quota.Window{UsedPercent: 12}, Weekly: &quota.Window{UsedPercent: 20}}, nil
+			case "acct-b":
+				return quota.Snapshot{}, errors.New("upstream 500")
+			default:
+				return quota.Snapshot{}, errors.New("unexpected account")
+			}
+		}),
+	)
+
+	out, err := mgr.SyncAllQuotasFromCodexAPI(context.Background())
+	if err != nil {
+		t.Fatalf("sync all err: %v", err)
+	}
+	if out.Total != 3 || out.Succeeded != 1 || out.Failed != 2 {
+		t.Fatalf("unexpected counters: %#v", out)
+	}
+	if len(out.Results) != 3 {
+		t.Fatalf("expected 3 per-account results, got %d", len(out.Results))
+	}
+
+	var foundA, foundB, foundC bool
+	for _, item := range out.Results {
+		switch item.AccountID {
+		case "A":
+			foundA = true
+			if !item.Success || item.Result == nil {
+				t.Fatalf("expected A success with result, got %#v", item)
+			}
+		case "B":
+			foundB = true
+			if item.Success || !strings.Contains(item.Error, "upstream 500") {
+				t.Fatalf("expected B fetch failure, got %#v", item)
+			}
+		case "C":
+			foundC = true
+			if item.Success || !strings.Contains(item.Error, "not supported") {
+				t.Fatalf("expected C provider failure, got %#v", item)
+			}
+		}
+	}
+	if !foundA || !foundB || !foundC {
+		t.Fatalf("missing expected account results: A=%v B=%v C=%v", foundA, foundB, foundC)
+	}
+}
+
+func TestSyncAllQuotasFromCodexAPIWithNoAccounts(t *testing.T) {
+	state := &fakeStateStore{state: model.DefaultState()}
+	secrets := &fakeSecretStore{}
+	mgr := NewManager(state, secrets)
+
+	out, err := mgr.SyncAllQuotasFromCodexAPI(context.Background())
+	if err != nil {
+		t.Fatalf("sync all should not fail on empty state: %v", err)
+	}
+	if out.Total != 0 || out.Succeeded != 0 || out.Failed != 0 || len(out.Results) != 0 {
+		t.Fatalf("unexpected output: %#v", out)
+	}
+}
+
 type fakeStateStore struct {
 	state     model.AppState
 	saveErr   error
