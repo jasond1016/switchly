@@ -223,7 +223,7 @@ func (s *APIServer) handleQuotaSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.manager.SyncQuotaFromCodexLogs(r.Context(), req.AccountID)
+	result, err := s.manager.SyncQuotaFromCodexAPI(r.Context(), req.AccountID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

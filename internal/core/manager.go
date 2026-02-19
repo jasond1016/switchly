@@ -68,24 +68,20 @@ type stateStore interface {
 }
 
 type Manager struct {
-	mu             sync.Mutex
-	stateStore     stateStore
-	secrets        secrets.Store
-	applier        ActiveAccountApplier
-	httpClient     *http.Client
-	quotaSrc       func() (quota.Snapshot, error)
-	quotaByThread  func(threadID string) (quota.Snapshot, error)
-	quotaWarmupRun func(ctx context.Context) (string, error)
+	mu         sync.Mutex
+	stateStore stateStore
+	secrets    secrets.Store
+	applier    ActiveAccountApplier
+	httpClient *http.Client
+	quotaFetch func(ctx context.Context, httpClient *http.Client, accessToken, accountID string) (quota.Snapshot, error)
 }
 
 func NewManager(stateStore stateStore, secretStore secrets.Store, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		stateStore:     stateStore,
-		secrets:        secretStore,
-		httpClient:     &http.Client{Timeout: 20 * time.Second},
-		quotaSrc:       quota.LatestCodexSnapshot,
-		quotaByThread:  quota.LatestCodexSnapshotForThread,
-		quotaWarmupRun: quota.RunCodexWarmup,
+		stateStore: stateStore,
+		secrets:    secretStore,
+		httpClient: &http.Client{Timeout: 20 * time.Second},
+		quotaFetch: quota.FetchCodexSnapshot,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -95,21 +91,9 @@ func NewManager(stateStore stateStore, secretStore secrets.Store, opts ...Manage
 	return m
 }
 
-func WithQuotaSnapshotSource(source func() (quota.Snapshot, error)) ManagerOption {
+func WithCodexQuotaFetcher(fetcher func(ctx context.Context, httpClient *http.Client, accessToken, accountID string) (quota.Snapshot, error)) ManagerOption {
 	return func(m *Manager) {
-		m.quotaSrc = source
-	}
-}
-
-func WithQuotaSnapshotByThreadSource(source func(threadID string) (quota.Snapshot, error)) ManagerOption {
-	return func(m *Manager) {
-		m.quotaByThread = source
-	}
-}
-
-func WithQuotaWarmupRunner(runner func(ctx context.Context) (string, error)) ManagerOption {
-	return func(m *Manager) {
-		m.quotaWarmupRun = runner
+		m.quotaFetch = fetcher
 	}
 }
 
@@ -284,7 +268,7 @@ func (m *Manager) UpdateQuota(ctx context.Context, accountID string, quota model
 	return m.stateStore.Save(state)
 }
 
-func (m *Manager) SyncQuotaFromCodexLogs(ctx context.Context, accountID string) (QuotaSyncResult, error) {
+func (m *Manager) SyncQuotaFromCodexAPI(ctx context.Context, accountID string) (QuotaSyncResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -308,11 +292,28 @@ func (m *Manager) SyncQuotaFromCodexLogs(ctx context.Context, accountID string) 
 	if strings.ToLower(acct.Provider) != "codex" {
 		return QuotaSyncResult{}, fmt.Errorf("quota sync not supported for provider %s", acct.Provider)
 	}
-	if acct.LastAppliedAt.IsZero() {
-		return QuotaSyncResult{}, fmt.Errorf("account %s has never been applied; run account use first", targetID)
+
+	if err := m.ensureFreshToken(ctx, &acct); err != nil {
+		acct.Status = model.AccountNeedReauth
+		acct.LastError = err.Error()
+		acct.UpdatedAt = time.Now().UTC()
+		state.Accounts[targetID] = acct
+		if saveErr := m.stateStore.Save(state); saveErr != nil {
+			return QuotaSyncResult{}, fmt.Errorf("refresh token for account %s: %v (also failed to persist state: %v)", targetID, err, saveErr)
+		}
+		return QuotaSyncResult{}, fmt.Errorf("refresh token for account %s: %w", targetID, err)
 	}
 
-	snap, err := m.resolveQuotaSnapshotForAccount(ctx, acct, targetID)
+	secretsData, err := m.secrets.Get(targetID)
+	if err != nil {
+		return QuotaSyncResult{}, fmt.Errorf("load secrets for account %s: %w", targetID, err)
+	}
+
+	if m.quotaFetch == nil {
+		return QuotaSyncResult{}, errors.New("quota fetcher is not configured")
+	}
+
+	snap, err := m.quotaFetch(ctx, m.httpClient, secretsData.AccessToken, secretsData.AccountID)
 	if err != nil {
 		return QuotaSyncResult{}, err
 	}
@@ -327,9 +328,13 @@ func (m *Manager) SyncQuotaFromCodexLogs(ctx context.Context, accountID string) 
 		nextQuota.Weekly.UsedPercent = snap.Weekly.UsedPercent
 		nextQuota.Weekly.ResetAt = snap.Weekly.ResetAt
 	}
-	nextQuota.LimitReached = nextQuota.Session.UsedPercent >= 100 || nextQuota.Weekly.UsedPercent >= 100
+	nextQuota.LimitReached = snap.LimitReached || nextQuota.Session.UsedPercent >= 100 || nextQuota.Weekly.UsedPercent >= 100
 	nextQuota.LastUpdated = now
 
+	acct.Status = model.AccountReady
+	acct.LastError = ""
+	acct.AccessExpiresAt = secretsData.AccessExpiresAt
+	acct.RefreshExpiresAt = secretsData.RefreshExpiresAt
 	acct.Quota = nextQuota
 	acct.UpdatedAt = now
 	state.Accounts[targetID] = acct
@@ -342,57 +347,6 @@ func (m *Manager) SyncQuotaFromCodexLogs(ctx context.Context, accountID string) 
 		Quota:           nextQuota,
 		SourceTimestamp: snap.SourceTimestamp,
 	}, nil
-}
-
-func (m *Manager) resolveQuotaSnapshotForAccount(ctx context.Context, acct model.Account, accountID string) (quota.Snapshot, error) {
-	if m.quotaSrc == nil {
-		return quota.Snapshot{}, errors.New("quota source is not configured")
-	}
-
-	snap, err := m.quotaSrc()
-	if err == nil && snap.SourceTimestamp.After(acct.LastAppliedAt) {
-		return snap, nil
-	}
-
-	if m.quotaWarmupRun == nil {
-		if err != nil {
-			return quota.Snapshot{}, err
-		}
-		return quota.Snapshot{}, fmt.Errorf(
-			"latest codex quota snapshot (%s) is not newer than last apply time for %s (%s); run a codex session with this account before syncing",
-			snap.SourceTimestamp.Format(time.RFC3339),
-			accountID,
-			acct.LastAppliedAt.Format(time.RFC3339),
-		)
-	}
-	if m.quotaByThread == nil {
-		return quota.Snapshot{}, errors.New("quota by-thread source is not configured")
-	}
-
-	warmCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-
-	threadID, warmErr := m.quotaWarmupRun(warmCtx)
-	if warmErr != nil {
-		if err != nil {
-			return quota.Snapshot{}, fmt.Errorf("codex quota snapshot unavailable and warmup failed: %w", warmErr)
-		}
-		return quota.Snapshot{}, fmt.Errorf("codex quota snapshot stale and warmup failed: %w", warmErr)
-	}
-
-	warmSnap, err := m.quotaByThread(threadID)
-	if err != nil {
-		return quota.Snapshot{}, fmt.Errorf("failed to load quota from warmup session %s: %w", threadID, err)
-	}
-	if !warmSnap.SourceTimestamp.After(acct.LastAppliedAt) {
-		return quota.Snapshot{}, fmt.Errorf(
-			"warmup quota snapshot (%s) is not newer than last apply time for %s (%s)",
-			warmSnap.SourceTimestamp.Format(time.RFC3339),
-			accountID,
-			acct.LastAppliedAt.Format(time.RFC3339),
-		)
-	}
-	return warmSnap, nil
 }
 
 func (m *Manager) HandleQuotaError(ctx context.Context, statusCode int, errorMessage string) (SwitchDecision, error) {

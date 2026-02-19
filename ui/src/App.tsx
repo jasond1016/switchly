@@ -4,8 +4,10 @@ import "./App.css";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:7777";
 const BASE_URL_KEY = "switchly-ui-base-url";
+const QUOTA_REFRESH_CADENCE_KEY = "switchly-ui-quota-refresh-cadence";
 
 type RoutingStrategy = "round-robin" | "fill-first";
+type RefreshCadence = "manual" | "1min" | "2min" | "5min" | "10min" | "15min";
 
 type QuotaWindow = {
   used_percent: number;
@@ -24,7 +26,6 @@ type Account = {
   provider: string;
   email?: string;
   status: string;
-  last_applied_at?: string;
   access_expires_at?: string;
   refresh_expires_at?: string;
   last_refresh_at?: string;
@@ -59,6 +60,19 @@ type DaemonInfo = {
 };
 
 type QuotaTone = "good" | "warn" | "danger";
+
+const REFRESH_CADENCE_OPTIONS: Array<{ value: RefreshCadence; label: string; intervalMs: number | null }> = [
+  { value: "manual", label: "Manual", intervalMs: null },
+  { value: "1min", label: "1 min", intervalMs: 60_000 },
+  { value: "2min", label: "2 min", intervalMs: 120_000 },
+  { value: "5min", label: "5 min", intervalMs: 300_000 },
+  { value: "10min", label: "10 min", intervalMs: 600_000 },
+  { value: "15min", label: "15 min", intervalMs: 900_000 },
+];
+
+function isRefreshCadence(value: string | null): value is RefreshCadence {
+  return REFRESH_CADENCE_OPTIONS.some((item) => item.value === value);
+}
 
 function isZeroTime(value?: string): boolean {
   if (!value) {
@@ -162,7 +176,17 @@ function App() {
   const [simBusy, setSimBusy] = useState(false);
   const [quotaSyncBusy, setQuotaSyncBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [quotaRefreshCadence, setQuotaRefreshCadence] = useState<RefreshCadence>(() => {
+    const raw = localStorage.getItem(QUOTA_REFRESH_CADENCE_KEY);
+    if (isRefreshCadence(raw)) {
+      return raw;
+    }
+    return "10min";
+  });
   const pollRef = useRef<number | null>(null);
+  const quotaSyncInFlightRef = useRef(false);
+  const quotaSyncFailureCountRef = useRef(0);
+  const quotaSyncBackoffUntilRef = useRef(0);
 
   const daemonParams = useMemo(() => deriveDaemonParams(baseURL), [baseURL]);
 
@@ -213,6 +237,10 @@ function App() {
   }, [baseURL]);
 
   useEffect(() => {
+    localStorage.setItem(QUOTA_REFRESH_CADENCE_KEY, quotaRefreshCadence);
+  }, [quotaRefreshCadence]);
+
+  useEffect(() => {
     void refreshAll();
     return () => {
       if (pollRef.current !== null) {
@@ -229,6 +257,48 @@ function App() {
       window.clearInterval(timer);
     };
   }, []);
+
+  const runQuotaSync = useCallback(
+    async (opts?: { accountID?: string; silent?: boolean; showBusy?: boolean }) => {
+      const accountID = (opts?.accountID ?? status?.active_account_id ?? "").trim();
+      if (!accountID || quotaSyncInFlightRef.current) {
+        return false;
+      }
+
+      quotaSyncInFlightRef.current = true;
+      if (opts?.showBusy) {
+        setQuotaSyncBusy(true);
+      }
+      if (!opts?.silent) {
+        setError("");
+      }
+
+      try {
+        await apiRequest("/v1/quota/sync", {
+          method: "POST",
+          body: JSON.stringify({ account_id: accountID }),
+        });
+        await loadStatus();
+        quotaSyncFailureCountRef.current = 0;
+        quotaSyncBackoffUntilRef.current = 0;
+        return true;
+      } catch (e) {
+        quotaSyncFailureCountRef.current += 1;
+        const backoffMinutes = Math.min(15, 2 ** (quotaSyncFailureCountRef.current - 1));
+        quotaSyncBackoffUntilRef.current = Date.now() + backoffMinutes * 60_000;
+        if (!opts?.silent) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+        return false;
+      } finally {
+        quotaSyncInFlightRef.current = false;
+        if (opts?.showBusy) {
+          setQuotaSyncBusy(false);
+        }
+      }
+    },
+    [apiRequest, loadStatus, status?.active_account_id],
+  );
 
   const startOAuthPolling = useCallback(
     (state: string) => {
@@ -249,6 +319,7 @@ function App() {
               setOAuthPolling(false);
               if (sess.status === "success") {
                 await refreshAll();
+                await runQuotaSync({ accountID: sess.account_id, silent: true });
               }
             }
           } catch (e) {
@@ -263,7 +334,7 @@ function App() {
         })();
       }, 2000);
     },
-    [apiRequest, refreshAll],
+    [apiRequest, refreshAll, runQuotaSync],
   );
 
   const onUseAccount = useCallback(
@@ -275,11 +346,12 @@ function App() {
           body: JSON.stringify({}),
         });
         await refreshAll();
+        await runQuotaSync({ accountID: id, silent: true });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [apiRequest, refreshAll],
+    [apiRequest, refreshAll, runQuotaSync],
   );
 
   const onStrategy = useCallback(
@@ -335,20 +407,28 @@ function App() {
   }, [apiRequest, refreshAll]);
 
   const onSyncQuota = useCallback(async () => {
-    setQuotaSyncBusy(true);
-    setError("");
-    try {
-      await apiRequest("/v1/quota/sync", {
-        method: "POST",
-        body: JSON.stringify({ account_id: status?.active_account_id ?? "" }),
-      });
-      await loadStatus();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setQuotaSyncBusy(false);
+    await runQuotaSync({ showBusy: true, silent: false });
+  }, [runQuotaSync]);
+
+  useEffect(() => {
+    const selected = REFRESH_CADENCE_OPTIONS.find((item) => item.value === quotaRefreshCadence);
+    if (!selected || selected.intervalMs === null) {
+      return;
     }
-  }, [apiRequest, loadStatus, status?.active_account_id]);
+
+    const timer = window.setInterval(() => {
+      void (async () => {
+        if (Date.now() < quotaSyncBackoffUntilRef.current) {
+          return;
+        }
+        await runQuotaSync({ silent: true });
+      })();
+    }, selected.intervalMs);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [quotaRefreshCadence, runQuotaSync]);
 
   const onDaemonCommand = useCallback(
     async (cmd: "start" | "stop" | "restart") => {
@@ -378,11 +458,16 @@ function App() {
       } finally {
         setDaemonBusy("");
         setTimeout(() => {
-          void refreshAll();
+          void (async () => {
+            await refreshAll();
+            if (cmd === "start" || cmd === "restart") {
+              await runQuotaSync({ silent: true });
+            }
+          })();
         }, 500);
       }
     },
-    [daemonParams.addr, daemonParams.publicBaseURL, refreshAll],
+    [daemonParams.addr, daemonParams.publicBaseURL, refreshAll, runQuotaSync],
   );
 
   return (
@@ -428,8 +513,21 @@ function App() {
         <div className="inline-actions">
           <button onClick={() => void onStrategy("round-robin")}>Round-robin</button>
           <button onClick={() => void onStrategy("fill-first")}>Fill-first</button>
+          <label>
+            Quota Auto-refresh
+            <select
+              value={quotaRefreshCadence}
+              onChange={(e) => setQuotaRefreshCadence(e.currentTarget.value as RefreshCadence)}
+            >
+              {REFRESH_CADENCE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button onClick={() => void onSyncQuota()} disabled={quotaSyncBusy}>
-            {quotaSyncBusy ? "Syncing Quota..." : "Sync Quota (Auto Warmup)"}
+            {quotaSyncBusy ? "Syncing Quota..." : "Sync Quota (OpenAI API)"}
           </button>
           <button onClick={() => void onSimulateLimit()} disabled={simBusy}>
             {simBusy ? "Switching..." : "Simulate Limit Error"}
@@ -445,7 +543,6 @@ function App() {
               <tr>
                 <th>ID</th>
                 <th>Status</th>
-                <th>Last Applied</th>
                 <th>Access Expiry</th>
                 <th>Last Refresh</th>
                 <th>Quota (Remaining)</th>
@@ -462,7 +559,6 @@ function App() {
                     </div>
                   </td>
                   <td>{acc.status}</td>
-                  <td>{fmtTime(acc.last_applied_at)}</td>
                   <td>{fmtTime(acc.access_expires_at)}</td>
                   <td>{fmtTime(acc.last_refresh_at)}</td>
                   <td className="quota-cell">
@@ -506,7 +602,7 @@ function App() {
               ))}
               {(!status || status.accounts.length === 0) && (
                 <tr>
-                  <td colSpan={7}>No accounts yet.</td>
+                  <td colSpan={6}>No accounts yet.</td>
                 </tr>
               )}
             </tbody>
@@ -560,3 +656,4 @@ function App() {
 }
 
 export default App;
+
