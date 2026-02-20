@@ -1,180 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
+import { Loader2, RefreshCw, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import "./App.css";
+import { AccountsTable } from "./components/switchly/accounts-table";
+import { ActionBar } from "./components/switchly/action-bar";
+import { DaemonPanel } from "./components/switchly/daemon-panel";
+import { OAuthPanel } from "./components/switchly/oauth-panel";
+import { SummaryRow } from "./components/switchly/summary-row";
+import {
+  type DaemonInfo,
+  deriveDaemonParams,
+  type OAuthSession,
+  oauthStatus,
+  type QuotaSyncAllResponse,
+  type RefreshCadence,
+  type RoutingStrategy,
+  type StatusSnapshot,
+  type SyncNotice,
+  isRefreshCadence,
+} from "./lib/switchly";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:7777";
 const BASE_URL_KEY = "switchly-ui-base-url";
 const QUOTA_REFRESH_CADENCE_KEY = "switchly-ui-quota-refresh-cadence";
 
-type RoutingStrategy = "round-robin" | "fill-first";
-type RefreshCadence = "manual" | "1min" | "2min" | "5min" | "10min" | "15min";
-
-type QuotaWindow = {
-  used_percent: number;
-  reset_at?: string;
-};
-
-type QuotaSnapshot = {
-  session: QuotaWindow;
-  weekly: QuotaWindow;
-  limit_reached: boolean;
-  last_updated?: string;
-};
-
-type Account = {
-  id: string;
-  provider: string;
-  email?: string;
-  status: string;
-  access_expires_at?: string;
-  refresh_expires_at?: string;
-  last_refresh_at?: string;
-  last_error?: string;
-  quota: QuotaSnapshot;
-  created_at: string;
-  updated_at: string;
-};
-
-type StatusSnapshot = {
-  active_account_id?: string;
-  strategy: RoutingStrategy;
-  accounts: Account[];
-};
-
-type QuotaSyncAllResponse = {
-  total: number;
-  succeeded: number;
-  failed: number;
-};
-
-type OAuthSession = {
-  state: string;
-  provider: string;
-  status: "pending" | "success" | "error" | "expired";
-  auth_url?: string;
-  account_id?: string;
-  error?: string;
-  expires_at: string;
-};
-
-type DaemonInfo = {
-  pid: number;
-  addr: string;
-  public_base_url: string;
-  restart_supported: boolean;
-  default_restart_cmd?: string;
-};
-
-type QuotaTone = "good" | "warn" | "danger";
-
-const REFRESH_CADENCE_OPTIONS: Array<{ value: RefreshCadence; label: string; intervalMs: number | null }> = [
-  { value: "manual", label: "Manual", intervalMs: null },
-  { value: "1min", label: "1 min", intervalMs: 60_000 },
-  { value: "2min", label: "2 min", intervalMs: 120_000 },
-  { value: "5min", label: "5 min", intervalMs: 300_000 },
-  { value: "10min", label: "10 min", intervalMs: 600_000 },
-  { value: "15min", label: "15 min", intervalMs: 900_000 },
-];
-
-function isRefreshCadence(value: string | null): value is RefreshCadence {
-  return REFRESH_CADENCE_OPTIONS.some((item) => item.value === value);
-}
-
-function isZeroTime(value?: string): boolean {
-  if (!value) {
-    return true;
-  }
-  return value.startsWith("0001-01-01T00:00:00Z");
-}
-
-function fmtTime(value?: string): string {
-  if (isZeroTime(value)) {
-    return "-";
-  }
-  const d = new Date(value ?? "");
-  if (Number.isNaN(d.getTime())) {
-    return "-";
-  }
-  return d.toLocaleString();
-}
-
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  const rounded = Math.round(value);
-  if (rounded < 0) {
-    return 0;
-  }
-  if (rounded > 100) {
-    return 100;
-  }
-  return rounded;
-}
-
-function remainingPercent(usedPercent: number): number {
-  return clampPercent(100 - clampPercent(usedPercent));
-}
-
-function toneFromRemaining(remaining: number): QuotaTone {
-  if (remaining >= 60) {
-    return "good";
-  }
-  if (remaining >= 30) {
-    return "warn";
-  }
-  return "danger";
-}
-
-function fmtResetHint(value: string | undefined, nowMs: number): string {
-  if (isZeroTime(value)) {
-    return "重置时间未获取";
-  }
-  const d = new Date(value ?? "");
-  if (Number.isNaN(d.getTime())) {
-    return "重置时间未获取";
-  }
-
-  const delta = d.getTime() - nowMs;
-  if (delta <= 0) {
-    return "即将重置";
-  }
-
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (delta < hour) {
-    return `${Math.max(1, Math.ceil(delta / minute))}分钟后`;
-  }
-  if (delta < day) {
-    return `${Math.ceil(delta / hour)}小时后`;
-  }
-  return `${Math.ceil(delta / day)}天后`;
-}
-
-function deriveDaemonParams(baseURL: string): { addr: string; publicBaseURL: string } {
-  try {
-    const parsed = new URL(baseURL);
-    const hostname = parsed.hostname || "127.0.0.1";
-    const port = parsed.port || "7777";
-    return {
-      addr: `${hostname}:${port}`,
-      publicBaseURL: `http://localhost:${port}`,
-    };
-  } catch {
-    return { addr: "127.0.0.1:7777", publicBaseURL: "http://localhost:7777" };
-  }
-}
-
 function App() {
-  const [baseURL, setBaseURL] = useState<string>(() => {
-    return localStorage.getItem(BASE_URL_KEY) ?? DEFAULT_BASE_URL;
-  });
+  const [baseURL, setBaseURL] = useState<string>(() => localStorage.getItem(BASE_URL_KEY) ?? DEFAULT_BASE_URL);
   const [status, setStatus] = useState<StatusSnapshot | null>(null);
   const [daemonInfo, setDaemonInfo] = useState<DaemonInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [syncNotice, setSyncNotice] = useState<SyncNotice | null>(null);
   const [oauthSession, setOAuthSession] = useState<OAuthSession | null>(null);
   const [oauthPolling, setOAuthPolling] = useState(false);
   const [daemonBusy, setDaemonBusy] = useState<"start" | "stop" | "restart" | "">("");
@@ -185,11 +40,9 @@ function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [quotaRefreshCadence, setQuotaRefreshCadence] = useState<RefreshCadence>(() => {
     const raw = localStorage.getItem(QUOTA_REFRESH_CADENCE_KEY);
-    if (isRefreshCadence(raw)) {
-      return raw;
-    }
-    return "10min";
+    return isRefreshCadence(raw) ? raw : "10min";
   });
+
   const pollRef = useRef<number | null>(null);
   const quotaSyncInFlightRef = useRef(false);
   const quotaSyncFailureCountRef = useRef(0);
@@ -203,6 +56,7 @@ function App() {
       if (init?.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json");
       }
+
       const response = await fetch(`${baseURL}${path}`, { ...init, headers });
       if (!response.ok) {
         const body = await response.text();
@@ -222,8 +76,12 @@ function App() {
   }, [apiRequest]);
 
   const loadDaemonInfo = useCallback(async () => {
-    const info = await apiRequest<DaemonInfo>("/v1/daemon/info");
-    setDaemonInfo(info);
+    try {
+      const info = await apiRequest<DaemonInfo>("/v1/daemon/info");
+      setDaemonInfo(info);
+    } catch {
+      setDaemonInfo(null);
+    }
   }, [apiRequest]);
 
   const refreshAll = useCallback(async () => {
@@ -232,8 +90,7 @@ function App() {
     try {
       await Promise.all([loadStatus(), loadDaemonInfo()]);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -257,12 +114,8 @@ function App() {
   }, [refreshAll]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 60_000);
-    return () => {
-      window.clearInterval(timer);
-    };
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const runQuotaSync = useCallback(
@@ -278,23 +131,26 @@ function App() {
       }
       if (!opts?.silent) {
         setError("");
+        setSyncNotice({ tone: "info", message: `正在同步账号 ${accountID} 的 Quota...` });
       }
 
       try {
-        await apiRequest("/v1/quota/sync", {
-          method: "POST",
-          body: JSON.stringify({ account_id: accountID }),
-        });
+        await apiRequest("/v1/quota/sync", { method: "POST", body: JSON.stringify({ account_id: accountID }) });
         await loadStatus();
         quotaSyncFailureCountRef.current = 0;
         quotaSyncBackoffUntilRef.current = 0;
+        if (!opts?.silent) {
+          setSyncNotice({ tone: "success", message: `✓ 账号 ${accountID} Quota 同步成功` });
+        }
         return true;
       } catch (e) {
         quotaSyncFailureCountRef.current += 1;
         const backoffMinutes = Math.min(15, 2 ** (quotaSyncFailureCountRef.current - 1));
         quotaSyncBackoffUntilRef.current = Date.now() + backoffMinutes * 60_000;
+        const msg = e instanceof Error ? e.message : String(e);
         if (!opts?.silent) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(msg);
+          setSyncNotice({ tone: "error", message: `Quota 同步失败: ${msg}` });
         }
         return false;
       } finally {
@@ -305,6 +161,54 @@ function App() {
       }
     },
     [apiRequest, loadStatus, status?.active_account_id],
+  );
+
+  const runQuotaSyncAll = useCallback(
+    async (opts?: { silent?: boolean; showBusy?: boolean }) => {
+      if (quotaSyncInFlightRef.current) {
+        return false;
+      }
+
+      quotaSyncInFlightRef.current = true;
+      if (opts?.showBusy) {
+        setQuotaSyncAllBusy(true);
+      }
+      if (!opts?.silent) {
+        setError("");
+        setSyncNotice({ tone: "info", message: "正在同步所有账号 Quota..." });
+      }
+
+      try {
+        const out = await apiRequest<QuotaSyncAllResponse>("/v1/quota/sync-all", { method: "POST", body: JSON.stringify({}) });
+        await loadStatus();
+        quotaSyncFailureCountRef.current = out.failed > 0 ? quotaSyncFailureCountRef.current : 0;
+        quotaSyncBackoffUntilRef.current = 0;
+        if (!opts?.silent) {
+          if (out.failed > 0) {
+            setSyncNotice({ tone: "warning", message: `⚠ 同步完成: ${out.succeeded} 个成功, ${out.failed} 个失败` });
+          } else {
+            setSyncNotice({ tone: "success", message: `✓ 全部 ${out.succeeded} 个账号 Quota 同步成功` });
+          }
+        }
+        return out.failed === 0;
+      } catch (e) {
+        quotaSyncFailureCountRef.current += 1;
+        const backoffMinutes = Math.min(15, 2 ** (quotaSyncFailureCountRef.current - 1));
+        quotaSyncBackoffUntilRef.current = Date.now() + backoffMinutes * 60_000;
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!opts?.silent) {
+          setError(msg);
+          setSyncNotice({ tone: "error", message: `Sync All 失败: ${msg}` });
+        }
+        return false;
+      } finally {
+        quotaSyncInFlightRef.current = false;
+        if (opts?.showBusy) {
+          setQuotaSyncAllBusy(false);
+        }
+      }
+    },
+    [apiRequest, loadStatus],
   );
 
   const startOAuthPolling = useCallback(
@@ -330,8 +234,7 @@ function App() {
               }
             }
           } catch (e) {
-            const message = e instanceof Error ? e.message : String(e);
-            setError(message);
+            setError(e instanceof Error ? e.message : String(e));
             if (pollRef.current !== null) {
               window.clearInterval(pollRef.current);
               pollRef.current = null;
@@ -348,12 +251,10 @@ function App() {
     async (id: string) => {
       setError("");
       try {
-        await apiRequest<{ status: string }>(`/v1/accounts/${encodeURIComponent(id)}/activate`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
+        await apiRequest<{ status: string }>(`/v1/accounts/${encodeURIComponent(id)}/activate`, { method: "POST", body: JSON.stringify({}) });
         await refreshAll();
         await runQuotaSync({ accountID: id, silent: true });
+        setSyncNotice({ tone: "success", message: `已切换到账号 ${id}` });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -365,10 +266,7 @@ function App() {
     async (strategy: RoutingStrategy) => {
       setError("");
       try {
-        await apiRequest<{ status: string }>("/v1/strategy", {
-          method: "PATCH",
-          body: JSON.stringify({ strategy }),
-        });
+        await apiRequest<{ status: string }>("/v1/strategy", { method: "PATCH", body: JSON.stringify({ strategy }) });
         await loadStatus();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -380,10 +278,7 @@ function App() {
   const onOAuthLogin = useCallback(async () => {
     setError("");
     try {
-      const session = await apiRequest<OAuthSession>("/v1/oauth/start", {
-        method: "POST",
-        body: JSON.stringify({ provider: "codex" }),
-      });
+      const session = await apiRequest<OAuthSession>("/v1/oauth/start", { method: "POST", body: JSON.stringify({ provider: "codex" }) });
       setOAuthSession(session);
       if (session.auth_url) {
         window.open(session.auth_url, "_blank", "noopener,noreferrer");
@@ -398,14 +293,9 @@ function App() {
     setSimBusy(true);
     setError("");
     try {
-      await apiRequest("/v1/switch/on-error", {
-        method: "POST",
-        body: JSON.stringify({
-          status_code: 429,
-          error_message: "quota exceeded",
-        }),
-      });
+      await apiRequest("/v1/switch/on-error", { method: "POST", body: JSON.stringify({ status_code: 429, error_message: "quota exceeded" }) });
       await refreshAll();
+      setSyncNotice({ tone: "warning", message: "已触发限额模拟，请检查账号切换结果" });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -413,58 +303,23 @@ function App() {
     }
   }, [apiRequest, refreshAll]);
 
-  const onSyncQuota = useCallback(async () => {
-    await runQuotaSync({ showBusy: true, silent: false });
-  }, [runQuotaSync]);
-
-  const onSyncQuotaAll = useCallback(async () => {
-    if (quotaSyncInFlightRef.current) {
-      return;
-    }
-    quotaSyncInFlightRef.current = true;
-    setQuotaSyncAllBusy(true);
-    setError("");
-    try {
-      const out = await apiRequest<QuotaSyncAllResponse>("/v1/quota/sync-all", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      await loadStatus();
-      quotaSyncFailureCountRef.current = out.failed > 0 ? quotaSyncFailureCountRef.current : 0;
-      quotaSyncBackoffUntilRef.current = 0;
-      if (out.failed > 0) {
-        setError(`Quota sync-all finished: ${out.succeeded} succeeded, ${out.failed} failed.`);
-      }
-    } catch (e) {
-      quotaSyncFailureCountRef.current += 1;
-      const backoffMinutes = Math.min(15, 2 ** (quotaSyncFailureCountRef.current - 1));
-      quotaSyncBackoffUntilRef.current = Date.now() + backoffMinutes * 60_000;
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      quotaSyncInFlightRef.current = false;
-      setQuotaSyncAllBusy(false);
-    }
-  }, [apiRequest, loadStatus]);
-
   useEffect(() => {
-    const selected = REFRESH_CADENCE_OPTIONS.find((item) => item.value === quotaRefreshCadence);
-    if (!selected || selected.intervalMs === null) {
+    const selected = quotaRefreshCadence;
+    const matched = selected === "manual" ? null : selected;
+    if (!matched) {
       return;
     }
-
+    const intervalMs = { "1min": 60_000, "2min": 120_000, "5min": 300_000, "10min": 600_000, "15min": 900_000 }[matched];
     const timer = window.setInterval(() => {
       void (async () => {
         if (Date.now() < quotaSyncBackoffUntilRef.current) {
           return;
         }
-        await runQuotaSync({ silent: true });
+        await runQuotaSyncAll({ silent: true });
       })();
-    }, selected.intervalMs);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [quotaRefreshCadence, runQuotaSync]);
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [quotaRefreshCadence, runQuotaSyncAll]);
 
   const onDaemonCommand = useCallback(
     async (cmd: "start" | "stop" | "restart") => {
@@ -474,19 +329,11 @@ function App() {
       try {
         let output = "";
         if (cmd === "start") {
-          output = await invoke<string>("daemon_start", {
-            addr: daemonParams.addr,
-            publicBaseUrl: daemonParams.publicBaseURL,
-          });
+          output = await invoke<string>("daemon_start", { addr: daemonParams.addr, publicBaseUrl: daemonParams.publicBaseURL });
         } else if (cmd === "stop") {
-          output = await invoke<string>("daemon_stop", {
-            addr: daemonParams.addr,
-          });
+          output = await invoke<string>("daemon_stop", { addr: daemonParams.addr });
         } else {
-          output = await invoke<string>("daemon_restart", {
-            addr: daemonParams.addr,
-            publicBaseUrl: daemonParams.publicBaseURL,
-          });
+          output = await invoke<string>("daemon_restart", { addr: daemonParams.addr, publicBaseUrl: daemonParams.publicBaseURL });
         }
         setDaemonOutput(output);
       } catch (e) {
@@ -506,193 +353,93 @@ function App() {
     [daemonParams.addr, daemonParams.publicBaseURL, refreshAll, runQuotaSync],
   );
 
+  const daemonRunning = daemonInfo !== null;
+  const oauthUIStatus = oauthStatus(oauthSession);
+  const daemonLogs = daemonOutput
+    ? daemonOutput
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0)
+    : [];
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <h1>Switchly Control</h1>
-          <p>Windows-first local account switcher for Codex CLI.</p>
-        </div>
-        <div className="topbar-actions">
-          <label>
-            Base URL
-            <input value={baseURL} onChange={(e) => setBaseURL(e.currentTarget.value)} />
-          </label>
-          <button onClick={() => void refreshAll()} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-      </header>
-
-      {error && <div className="notice error">{error}</div>}
-
-      <section className="panel">
-        <h2>Dashboard</h2>
-        <div className="stats-grid">
-          <article>
-            <span>Active Account</span>
-            <strong>{status?.active_account_id ?? "-"}</strong>
-          </article>
-          <article>
-            <span>Strategy</span>
-            <strong>{status?.strategy ?? "-"}</strong>
-          </article>
-          <article>
-            <span>Accounts</span>
-            <strong>{status?.accounts.length ?? 0}</strong>
-          </article>
-          <article>
-            <span>Daemon</span>
-            <strong>{daemonInfo ? `PID ${daemonInfo.pid}` : "Unavailable"}</strong>
-          </article>
-        </div>
-        <div className="inline-actions">
-          <button onClick={() => void onStrategy("round-robin")}>Round-robin</button>
-          <button onClick={() => void onStrategy("fill-first")}>Fill-first</button>
-          <label>
-            Quota Auto-refresh
-            <select
-              value={quotaRefreshCadence}
-              onChange={(e) => setQuotaRefreshCadence(e.currentTarget.value as RefreshCadence)}
+    <main className="min-h-screen bg-background">
+      <div className="mx-auto max-w-[1400px] px-6 py-6">
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
+              <Zap className="size-4 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-foreground">Switchly</h1>
+              <p className="text-xs text-muted-foreground">Codex 多账号切换器</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Base URL
+              <input
+                className="h-8 w-[270px] rounded-md border border-input bg-card px-2.5 text-xs text-foreground shadow-sm outline-none focus:ring-2 focus:ring-ring/40"
+                value={baseURL}
+                onChange={(e) => setBaseURL(e.currentTarget.value)}
+              />
+            </label>
+            <button
+              onClick={() => void refreshAll()}
+              disabled={loading}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-secondary px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {REFRESH_CADENCE_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={() => void onSyncQuota()} disabled={quotaSyncBusy || quotaSyncAllBusy}>
-            {quotaSyncBusy ? "Syncing Quota..." : "Sync Quota (OpenAI API)"}
-          </button>
-          <button onClick={() => void onSyncQuotaAll()} disabled={quotaSyncBusy || quotaSyncAllBusy}>
-            {quotaSyncAllBusy ? "Syncing All..." : "Sync All Quotas"}
-          </button>
-          <button onClick={() => void onSimulateLimit()} disabled={simBusy}>
-            {simBusy ? "Switching..." : "Simulate Limit Error"}
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Accounts</h2>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Status</th>
-                <th>Access Expiry</th>
-                <th>Last Refresh</th>
-                <th>Quota (Remaining)</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {status?.accounts.map((acc) => (
-                <tr key={acc.id}>
-                  <td>
-                    <div className="account-title">
-                      <strong>{acc.id}</strong>
-                      <small>{acc.email || acc.provider}</small>
-                    </div>
-                  </td>
-                  <td>{acc.status}</td>
-                  <td>{fmtTime(acc.access_expires_at)}</td>
-                  <td>{fmtTime(acc.last_refresh_at)}</td>
-                  <td className="quota-cell">
-                    <div className="quota-grid">
-                      {[
-                        { name: "Session Quota", window: acc.quota.session },
-                        { name: "Weekly Quota", window: acc.quota.weekly },
-                      ].map((item) => {
-                        const used = clampPercent(item.window.used_percent);
-                        const remaining = remainingPercent(used);
-                        const tone = toneFromRemaining(remaining);
-                        return (
-                          <div key={item.name} className="quota-item">
-                            <div className="quota-item-head">
-                              <span className="quota-item-name">{item.name}</span>
-                              <strong className={`quota-item-remaining tone-${tone}`}>剩余 {remaining}%</strong>
-                            </div>
-                            <div className="quota-track">
-                              <div className={`quota-fill tone-${tone}`} style={{ width: `${remaining}%` }} />
-                            </div>
-                            <div className="quota-item-meta">
-                              <span>已用 {used}%</span>
-                              <span>重置于 {fmtResetHint(item.window.reset_at, nowMs)}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {acc.quota.limit_reached && <div className="quota-limit">额度已用尽，请切换账号或等待重置</div>}
-                    <small className="quota-updated">Last updated: {fmtTime(acc.quota.last_updated)}</small>
-                  </td>
-                  <td>
-                    <button
-                      className={acc.id === status.active_account_id ? "active-btn" : ""}
-                      onClick={() => void onUseAccount(acc.id)}
-                    >
-                      {acc.id === status?.active_account_id ? "Re-apply" : "Use"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {(!status || status.accounts.length === 0) && (
-                <tr>
-                  <td colSpan={6}>No accounts yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="panel two-col">
-        <div>
-          <h2>OAuth Login</h2>
-          <p>Start browser login for provider `codex` and poll callback status.</p>
-          <div className="inline-actions">
-            <button onClick={() => void onOAuthLogin()} disabled={oauthPolling}>
-              {oauthPolling ? "Waiting callback..." : "Login with Browser"}
+              {loading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+              {loading ? "Refreshing..." : "Refresh"}
             </button>
           </div>
-          {oauthSession && (
-            <pre className="json-box">{JSON.stringify(oauthSession, null, 2)}</pre>
-          )}
-        </div>
-        <div>
-          <h2>Daemon</h2>
-          <p>
-            Addr: <code>{daemonParams.addr}</code>
-          </p>
-          <p>
-            Public callback base: <code>{daemonParams.publicBaseURL}</code>
-          </p>
-          <div className="inline-actions">
-            <button disabled={daemonBusy !== ""} onClick={() => void onDaemonCommand("start")}>
-              {daemonBusy === "start" ? "Starting..." : "Start"}
-            </button>
-            <button disabled={daemonBusy !== ""} onClick={() => void onDaemonCommand("stop")}>
-              {daemonBusy === "stop" ? "Stopping..." : "Stop"}
-            </button>
-            <button disabled={daemonBusy !== ""} onClick={() => void onDaemonCommand("restart")}>
-              {daemonBusy === "restart" ? "Restarting..." : "Restart"}
-            </button>
-          </div>
-          {daemonInfo && <pre className="json-box">{JSON.stringify(daemonInfo, null, 2)}</pre>}
-          {daemonOutput && (
-            <>
-              <h3>Command Output</h3>
-              <pre className="json-box">{daemonOutput}</pre>
-            </>
-          )}
-        </div>
-      </section>
+        </header>
+
+        <SummaryRow
+          activeAccountId={status?.active_account_id ?? "-"}
+          strategy={status?.strategy}
+          accountCount={status?.accounts.length ?? 0}
+          daemonRunning={daemonRunning}
+        />
+
+        <ActionBar
+          strategy={status?.strategy}
+          quotaRefreshCadence={quotaRefreshCadence}
+          quotaSyncBusy={quotaSyncBusy}
+          quotaSyncAllBusy={quotaSyncAllBusy}
+          simBusy={simBusy}
+          syncNotice={syncNotice}
+          error={error}
+          onStrategyChange={(s) => void onStrategy(s)}
+          onQuotaRefreshCadenceChange={setQuotaRefreshCadence}
+          onSyncQuota={() => void runQuotaSync({ showBusy: true, silent: false })}
+          onSyncQuotaAll={() => void runQuotaSyncAll({ showBusy: true, silent: false })}
+          onSimulateLimit={() => void onSimulateLimit()}
+        />
+
+        <AccountsTable
+          accounts={status?.accounts ?? []}
+          activeAccountID={status?.active_account_id}
+          nowMs={nowMs}
+          onUseAccount={(id) => void onUseAccount(id)}
+          onOAuthReauth={() => void onOAuthLogin()}
+        />
+
+        <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <OAuthPanel oauthPolling={oauthPolling} oauthUIStatus={oauthUIStatus} oauthSession={oauthSession} onOAuthLogin={() => void onOAuthLogin()} />
+          <DaemonPanel
+            addr={daemonParams.addr}
+            publicBaseURL={daemonParams.publicBaseURL}
+            daemonBusy={daemonBusy}
+            daemonRunning={daemonRunning}
+            daemonInfo={daemonInfo}
+            daemonLogs={daemonLogs}
+            onDaemonCommand={(cmd) => void onDaemonCommand(cmd)}
+          />
+        </section>
+      </div>
     </main>
   );
 }
 
 export default App;
-
