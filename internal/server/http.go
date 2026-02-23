@@ -50,16 +50,14 @@ func (s *APIServer) Handler() http.Handler {
 }
 
 func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	status, err := s.manager.Status(r.Context())
@@ -71,14 +69,13 @@ func (s *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleStrategy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPatch {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPatch) {
 		return
 	}
 	var req struct {
 		Strategy model.RoutingStrategy `json:"strategy"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req, false); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -110,7 +107,7 @@ func (s *APIServer) handleAccounts(w http.ResponseWriter, r *http.Request) {
 			AccessExpiresAt  string `json:"access_expires_at"`
 			RefreshExpiresAt string `json:"refresh_expires_at"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(r, &req, false); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -163,8 +160,7 @@ type codexImportCandidateResponse struct {
 }
 
 func (s *APIServer) handleCodexImportCandidate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 
@@ -201,15 +197,14 @@ func (s *APIServer) handleCodexImportCandidate(w http.ResponseWriter, r *http.Re
 }
 
 func (s *APIServer) handleCodexImport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
 	var req struct {
 		OverwriteExisting *bool `json:"overwrite_existing"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := decodeJSONBody(r, &req, true); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -267,20 +262,15 @@ func (s *APIServer) handleCodexImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleAccountDetail(w http.ResponseWriter, r *http.Request) {
-	trimmed := strings.TrimPrefix(r.URL.Path, "/v1/accounts/")
-	parts := strings.Split(trimmed, "/")
-	if len(parts) < 2 {
+	accountID, action, err := parseAccountActionPath(r.URL.Path)
+	if err != nil {
 		writeError(w, http.StatusNotFound, errors.New("not found"))
 		return
 	}
 
-	accountID := parts[0]
-	action := parts[1]
-
 	switch action {
 	case "activate":
-		if r.Method != http.MethodPost {
-			methodNotAllowed(w)
+		if !requireMethod(w, r, http.MethodPost) {
 			return
 		}
 		if err := s.manager.SetActiveAccount(r.Context(), accountID); err != nil {
@@ -289,12 +279,11 @@ func (s *APIServer) handleAccountDetail(w http.ResponseWriter, r *http.Request) 
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case "quota":
-		if r.Method != http.MethodPatch {
-			methodNotAllowed(w)
+		if !requireMethod(w, r, http.MethodPatch) {
 			return
 		}
 		var q model.QuotaSnapshot
-		if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
+		if err := decodeJSONBody(r, &q, false); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -318,8 +307,7 @@ func containsAccount(accounts []model.Account, accountID string) bool {
 }
 
 func (s *APIServer) handleSwitchOnError(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -327,7 +315,7 @@ func (s *APIServer) handleSwitchOnError(w http.ResponseWriter, r *http.Request) 
 		StatusCode   int    `json:"status_code"`
 		ErrorMessage string `json:"error_message"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req, false); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -341,14 +329,13 @@ func (s *APIServer) handleSwitchOnError(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) handleQuotaSync(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req struct {
 		AccountID string `json:"account_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := decodeJSONBody(r, &req, true); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -362,8 +349,7 @@ func (s *APIServer) handleQuotaSync(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleQuotaSyncAll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 
@@ -376,8 +362,7 @@ func (s *APIServer) handleQuotaSyncAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleOAuthProviders(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	if s.oauth == nil {
@@ -388,8 +373,7 @@ func (s *APIServer) handleOAuthProviders(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	if s.oauth == nil {
@@ -400,7 +384,7 @@ func (s *APIServer) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Provider string `json:"provider"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req, false); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -414,8 +398,7 @@ func (s *APIServer) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleOAuthStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	if s.oauth == nil {
@@ -446,8 +429,7 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) handleDaemonInfo(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	if s.daemon == nil {
@@ -458,8 +440,7 @@ func (s *APIServer) handleDaemonInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleDaemonShutdown(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	if s.daemon == nil {
@@ -474,8 +455,7 @@ func (s *APIServer) handleDaemonShutdown(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleDaemonRestart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	if s.daemon == nil {
@@ -485,7 +465,7 @@ func (s *APIServer) handleDaemonRestart(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		StartCmd string `json:"start_cmd"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := decodeJSONBody(r, &req, true); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -501,6 +481,31 @@ func parseOptionalTime(s string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return time.Parse(time.RFC3339, s)
+}
+
+func parseAccountActionPath(path string) (string, string, error) {
+	trimmed := strings.TrimPrefix(path, "/v1/accounts/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 2 {
+		return "", "", errors.New("not found")
+	}
+	return parts[0], parts[1], nil
+}
+
+func decodeJSONBody(r *http.Request, dst interface{}, allowEmpty bool) error {
+	err := json.NewDecoder(r.Body).Decode(dst)
+	if err != nil && allowEmpty && errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
+func requireMethod(w http.ResponseWriter, r *http.Request, method string) bool {
+	if r.Method != method {
+		methodNotAllowed(w)
+		return false
+	}
+	return true
 }
 
 func methodNotAllowed(w http.ResponseWriter) {
