@@ -7,6 +7,8 @@ import { DaemonPanel } from "./components/switchly/daemon-panel";
 import { OAuthPanel } from "./components/switchly/oauth-panel";
 import { SummaryRow } from "./components/switchly/summary-row";
 import {
+  type CodexImportCandidateResponse,
+  type CodexImportResponse,
   type DaemonInfo,
   deriveDaemonParams,
   type OAuthSession,
@@ -37,6 +39,8 @@ function App() {
   const [simBusy, setSimBusy] = useState(false);
   const [quotaSyncBusy, setQuotaSyncBusy] = useState(false);
   const [quotaSyncAllBusy, setQuotaSyncAllBusy] = useState(false);
+  const [codexImportCandidate, setCodexImportCandidate] = useState<CodexImportCandidateResponse | null>(null);
+  const [codexImportBusy, setCodexImportBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [quotaRefreshCadence, setQuotaRefreshCadence] = useState<RefreshCadence>(() => {
     const raw = localStorage.getItem(QUOTA_REFRESH_CADENCE_KEY);
@@ -44,6 +48,7 @@ function App() {
   });
 
   const pollRef = useRef<number | null>(null);
+  const importDismissedRef = useRef(false);
   const quotaSyncInFlightRef = useRef(false);
   const quotaSyncFailureCountRef = useRef(0);
   const quotaSyncBackoffUntilRef = useRef(0);
@@ -84,17 +89,32 @@ function App() {
     }
   }, [apiRequest]);
 
+  const discoverCodexImportCandidate = useCallback(async () => {
+    if (importDismissedRef.current || codexImportCandidate?.found) {
+      return;
+    }
+    try {
+      const out = await apiRequest<CodexImportCandidateResponse>("/v1/accounts/import/codex/candidate");
+      if (out.found && out.candidate) {
+        setCodexImportCandidate(out);
+      }
+    } catch {
+      // Ignore discovery errors to keep normal dashboard loading smooth.
+    }
+  }, [apiRequest, codexImportCandidate?.found]);
+
   const refreshAll = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       await Promise.all([loadStatus(), loadDaemonInfo()]);
+      await discoverCodexImportCandidate();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [loadDaemonInfo, loadStatus]);
+  }, [discoverCodexImportCandidate, loadDaemonInfo, loadStatus]);
 
   useEffect(() => {
     localStorage.setItem(BASE_URL_KEY, baseURL);
@@ -303,6 +323,31 @@ function App() {
     }
   }, [apiRequest, refreshAll]);
 
+  const onImportLocalCodexAccount = useCallback(async () => {
+    setCodexImportBusy(true);
+    setError("");
+    try {
+      const out = await apiRequest<CodexImportResponse>("/v1/accounts/import/codex", {
+        method: "POST",
+        body: JSON.stringify({ overwrite_existing: true }),
+      });
+      importDismissedRef.current = true;
+      setCodexImportCandidate(null);
+      await refreshAll();
+      await runQuotaSync({ accountID: out.account.id, silent: true });
+      setSyncNotice({ tone: "success", message: out.action === "updated" ? `已更新本地账号 ${out.account.id}` : `已导入本地账号 ${out.account.id}` });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCodexImportBusy(false);
+    }
+  }, [apiRequest, refreshAll, runQuotaSync]);
+
+  const onDismissLocalCodexImport = useCallback(() => {
+    importDismissedRef.current = true;
+    setCodexImportCandidate(null);
+  }, []);
+
   useEffect(() => {
     const selected = quotaRefreshCadence;
     const matched = selected === "manual" ? null : selected;
@@ -416,6 +461,37 @@ function App() {
           onSyncQuotaAll={() => void runQuotaSyncAll({ showBusy: true, silent: false })}
           onSimulateLimit={() => void onSimulateLimit()}
         />
+
+        {codexImportCandidate?.found && codexImportCandidate.candidate ? (
+          <section className="mb-4 rounded-lg border border-success/30 bg-success/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-foreground">检测到本地 Codex 登录，可导入 Switchly 账号列表</p>
+                <p className="text-xs text-muted-foreground">
+                  账号 ID: {codexImportCandidate.candidate.id}
+                  {codexImportCandidate.already_exists ? "（已存在，导入会覆盖 token）" : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void onImportLocalCodexAccount()}
+                  disabled={codexImportBusy}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {codexImportBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  导入
+                </button>
+                <button
+                  onClick={onDismissLocalCodexImport}
+                  disabled={codexImportBusy}
+                  className="inline-flex h-8 items-center rounded-md border border-border bg-secondary px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  暂不导入
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <AccountsTable
           accounts={status?.accounts ?? []}

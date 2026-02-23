@@ -59,6 +59,25 @@ export type DaemonInfo = {
   default_restart_cmd?: string;
 };
 
+export type CodexImportCandidate = {
+  id: string;
+  provider: string;
+  email?: string;
+  account_id_present: boolean;
+};
+
+export type CodexImportCandidateResponse = {
+  found: boolean;
+  candidate?: CodexImportCandidate;
+  already_exists?: boolean;
+};
+
+export type CodexImportResponse = {
+  status: "ok";
+  action: "created" | "updated";
+  account: Account;
+};
+
 export type SyncNotice = {
   tone: SyncTone;
   message: string;

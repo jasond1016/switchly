@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"switchly/internal/codexauth"
 )
 
 const defaultBaseURL = "http://127.0.0.1:7777"
@@ -322,15 +323,6 @@ func runOAuth(c *apiClient, args []string) error {
 	}
 }
 
-type codexAuthFile struct {
-	Tokens struct {
-		IDToken      string `json:"id_token"`
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		AccountID    string `json:"account_id"`
-	} `json:"tokens"`
-}
-
 func runOAuthLoginDevice(c *apiClient, provider string) error {
 	if !strings.EqualFold(provider, "codex") {
 		return fmt.Errorf("device method is currently supported only for provider=codex")
@@ -344,25 +336,22 @@ func runOAuthLoginDevice(c *apiClient, provider string) error {
 		return fmt.Errorf("codex device auth failed: %w", err)
 	}
 
-	auth, err := readCodexAuthFile()
+	account, err := codexauth.LoadLocalAccountFromDefaultFile()
 	if err != nil {
 		return fmt.Errorf("read ~/.codex/auth.json failed: %w", err)
 	}
-	if strings.TrimSpace(auth.Tokens.AccessToken) == "" {
-		return fmt.Errorf("codex auth file does not contain access_token")
+	if err := account.Validate(); err != nil {
+		return err
 	}
 
-	email, tokenAccountID := decodeEmailAndAccountID(auth.Tokens.IDToken)
-	accountID := buildCodexAccountID(email, firstNonEmpty(auth.Tokens.AccountID, tokenAccountID))
-
 	payload := map[string]string{
-		"id":            accountID,
+		"id":            account.ID,
 		"provider":      "codex",
-		"email":         email,
-		"access_token":  auth.Tokens.AccessToken,
-		"refresh_token": auth.Tokens.RefreshToken,
-		"id_token":      auth.Tokens.IDToken,
-		"account_id":    firstNonEmpty(auth.Tokens.AccountID, tokenAccountID),
+		"email":         account.Email,
+		"access_token":  account.Secrets.AccessToken,
+		"refresh_token": account.Secrets.RefreshToken,
+		"id_token":      account.Secrets.IDToken,
+		"account_id":    account.Secrets.AccountID,
 	}
 
 	var out map[string]interface{}
@@ -374,75 +363,6 @@ func runOAuthLoginDevice(c *apiClient, provider string) error {
 		"method":  "device",
 		"account": out,
 	})
-}
-
-func readCodexAuthFile() (codexAuthFile, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return codexAuthFile{}, err
-	}
-	path := home + `\.codex\auth.json`
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return codexAuthFile{}, err
-	}
-	var out codexAuthFile
-	if err := json.Unmarshal(data, &out); err != nil {
-		return codexAuthFile{}, err
-	}
-	return out, nil
-}
-
-func decodeEmailAndAccountID(idToken string) (email, accountID string) {
-	if strings.TrimSpace(idToken) == "" {
-		return "", ""
-	}
-	parts := strings.Split(idToken, ".")
-	if len(parts) < 2 {
-		return "", ""
-	}
-	payload := parts[1]
-	payload = strings.ReplaceAll(payload, "-", "+")
-	payload = strings.ReplaceAll(payload, "_", "/")
-	if mod := len(payload) % 4; mod != 0 {
-		payload += strings.Repeat("=", 4-mod)
-	}
-	b, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil {
-		return "", ""
-	}
-	var claims map[string]interface{}
-	if err := json.Unmarshal(b, &claims); err != nil {
-		return "", ""
-	}
-	if v, ok := claims["email"].(string); ok {
-		email = strings.TrimSpace(v)
-	}
-	if nested, ok := claims["https://api.openai.com/auth"].(map[string]interface{}); ok {
-		if v, ok := nested["chatgpt_account_id"].(string); ok {
-			accountID = strings.TrimSpace(v)
-		}
-	}
-	return email, accountID
-}
-
-func buildCodexAccountID(email, accountID string) string {
-	if strings.TrimSpace(email) != "" {
-		return "codex:" + strings.ToLower(strings.TrimSpace(email))
-	}
-	if strings.TrimSpace(accountID) != "" {
-		return "codex:" + strings.TrimSpace(accountID)
-	}
-	return "codex:" + time.Now().UTC().Format("20060102150405")
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
 }
 
 func runDaemon(c *apiClient, args []string) error {

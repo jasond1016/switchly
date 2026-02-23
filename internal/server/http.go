@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"switchly/internal/codexauth"
 	"switchly/internal/core"
 	"switchly/internal/model"
 	"switchly/internal/oauth"
@@ -32,6 +33,8 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/strategy", s.handleStrategy)
 	mux.HandleFunc("/v1/accounts", s.handleAccounts)
 	mux.HandleFunc("/v1/accounts/", s.handleAccountDetail)
+	mux.HandleFunc("/v1/accounts/import/codex/candidate", s.handleCodexImportCandidate)
+	mux.HandleFunc("/v1/accounts/import/codex", s.handleCodexImport)
 	mux.HandleFunc("/v1/quota/sync", s.handleQuotaSync)
 	mux.HandleFunc("/v1/quota/sync-all", s.handleQuotaSyncAll)
 	mux.HandleFunc("/v1/switch/on-error", s.handleSwitchOnError)
@@ -146,6 +149,123 @@ func (s *APIServer) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type codexImportCandidate struct {
+	ID             string `json:"id"`
+	Provider       string `json:"provider"`
+	Email          string `json:"email,omitempty"`
+	AccountIDKnown bool   `json:"account_id_present"`
+}
+
+type codexImportCandidateResponse struct {
+	Found         bool                  `json:"found"`
+	Candidate     *codexImportCandidate `json:"candidate,omitempty"`
+	AlreadyExists bool                  `json:"already_exists,omitempty"`
+}
+
+func (s *APIServer) handleCodexImportCandidate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	localAccount, err := codexauth.LoadLocalAccountFromDefaultFile()
+	if err != nil {
+		if errors.Is(err, codexauth.ErrAuthFileNotFound) {
+			writeJSON(w, http.StatusOK, codexImportCandidateResponse{Found: false})
+			return
+		}
+		writeError(w, http.StatusBadRequest, fmt.Errorf("discover codex auth candidate: %w", err))
+		return
+	}
+	if err := localAccount.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("discover codex auth candidate: %w", err))
+		return
+	}
+
+	accounts, err := s.manager.ListAccounts(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	exists := containsAccount(accounts, localAccount.ID)
+	writeJSON(w, http.StatusOK, codexImportCandidateResponse{
+		Found: true,
+		Candidate: &codexImportCandidate{
+			ID:             localAccount.ID,
+			Provider:       "codex",
+			Email:          localAccount.Email,
+			AccountIDKnown: strings.TrimSpace(localAccount.Secrets.AccountID) != "",
+		},
+		AlreadyExists: exists,
+	})
+}
+
+func (s *APIServer) handleCodexImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+
+	var req struct {
+		OverwriteExisting *bool `json:"overwrite_existing"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	overwriteExisting := true
+	if req.OverwriteExisting != nil {
+		overwriteExisting = *req.OverwriteExisting
+	}
+
+	localAccount, err := codexauth.LoadLocalAccountFromDefaultFile()
+	if err != nil {
+		if errors.Is(err, codexauth.ErrAuthFileNotFound) {
+			writeError(w, http.StatusNotFound, err)
+			return
+		}
+		writeError(w, http.StatusBadRequest, fmt.Errorf("import codex auth: %w", err))
+		return
+	}
+	if err := localAccount.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("import codex auth: %w", err))
+		return
+	}
+
+	accounts, err := s.manager.ListAccounts(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	exists := containsAccount(accounts, localAccount.ID)
+	if exists && !overwriteExisting {
+		writeError(w, http.StatusConflict, errors.New("account already exists"))
+		return
+	}
+
+	account, err := s.manager.AddAccount(r.Context(), core.AddAccountInput{
+		ID:       localAccount.ID,
+		Provider: "codex",
+		Email:    localAccount.Email,
+		Secrets:  localAccount.Secrets,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	action := "created"
+	if exists {
+		action = "updated"
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"action":  action,
+		"account": account,
+	})
+}
+
 func (s *APIServer) handleAccountDetail(w http.ResponseWriter, r *http.Request) {
 	trimmed := strings.TrimPrefix(r.URL.Path, "/v1/accounts/")
 	parts := strings.Split(trimmed, "/")
@@ -186,6 +306,15 @@ func (s *APIServer) handleAccountDetail(w http.ResponseWriter, r *http.Request) 
 	default:
 		writeError(w, http.StatusNotFound, errors.New("not found"))
 	}
+}
+
+func containsAccount(accounts []model.Account, accountID string) bool {
+	for _, account := range accounts {
+		if account.ID == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *APIServer) handleSwitchOnError(w http.ResponseWriter, r *http.Request) {
