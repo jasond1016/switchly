@@ -2,6 +2,8 @@ export type RoutingStrategy = "round-robin" | "fill-first";
 export type RefreshCadence = "manual" | "1min" | "2min" | "5min" | "10min" | "15min";
 export type OAuthUIStatus = "idle" | "pending" | "success" | "error";
 export type SyncTone = "info" | "success" | "warning" | "error";
+export type SwitchlyRequestInit = RequestInit & { timeoutMs?: number };
+export type ApiRequest = <T>(path: string, init?: SwitchlyRequestInit) => Promise<T>;
 
 export type QuotaWindow = {
   used_percent: number;
@@ -94,6 +96,14 @@ export const REFRESH_CADENCE_OPTIONS: Array<{ value: RefreshCadence; label: stri
 
 export function isRefreshCadence(value: string | null): value is RefreshCadence {
   return REFRESH_CADENCE_OPTIONS.some((x) => x.value === value);
+}
+
+export function getCadenceIntervalMs(cadence: RefreshCadence): number | null {
+  return REFRESH_CADENCE_OPTIONS.find((x) => x.value === cadence)?.intervalMs ?? null;
+}
+
+export function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isZeroTime(value?: string): boolean {
