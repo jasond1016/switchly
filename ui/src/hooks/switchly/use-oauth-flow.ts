@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { type ApiRequest, type OAuthSession, toErrorMessage } from "../../lib/switchly";
+import { useMountedTimeout } from "../use-mounted-timeout";
 
 const OAUTH_POLL_INTERVAL_MS = 2000;
 
@@ -14,27 +15,12 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
   const [oauthSession, setOAuthSession] = useState<OAuthSession | null>(null);
   const [oauthPolling, setOAuthPolling] = useState(false);
 
-  const pollTimeoutRef = useRef<number | null>(null);
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      if (pollTimeoutRef.current !== null) {
-        window.clearTimeout(pollTimeoutRef.current);
-        pollTimeoutRef.current = null;
-      }
-    };
-  }, []);
+  const { isMountedRef, cancel: cancelPoll, schedule: schedulePoll } = useMountedTimeout();
 
   const startOAuthPolling = useCallback(
     (state: string) => {
-      if (pollTimeoutRef.current !== null) {
-        window.clearTimeout(pollTimeoutRef.current);
-      }
+      cancelPoll();
       setOAuthPolling(true);
-      pollTimeoutRef.current = null;
 
       const pollOnce = async (): Promise<void> => {
         try {
@@ -45,14 +31,13 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
           setOAuthSession(session);
 
           if (session.status === "pending") {
-            pollTimeoutRef.current = window.setTimeout(() => {
+            schedulePoll(() => {
               void pollOnce();
             }, OAUTH_POLL_INTERVAL_MS);
             return;
           }
 
           setOAuthPolling(false);
-          pollTimeoutRef.current = null;
           if (session.status === "success") {
             await refreshAll();
             await runQuotaSync({ accountID: session.account_id, silent: true });
@@ -63,13 +48,13 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
           }
           onError(toErrorMessage(error));
           setOAuthPolling(false);
-          pollTimeoutRef.current = null;
+          cancelPoll();
         }
       };
 
       void pollOnce();
     },
-    [apiRequest, onError, refreshAll, runQuotaSync],
+    [apiRequest, cancelPoll, isMountedRef, onError, refreshAll, runQuotaSync, schedulePoll],
   );
 
   const loginWithBrowser = useCallback(async () => {

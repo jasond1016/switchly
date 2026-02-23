@@ -76,6 +76,68 @@ describe("useDaemonControl", () => {
     expect(runQuotaSync).not.toHaveBeenCalled();
   });
 
+  it("ignores duplicated command while previous command is in flight", async () => {
+    const invokeMock = vi.mocked(invoke);
+    let resolveInvoke: (value: string) => void = () => {};
+    invokeMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveInvoke = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() =>
+      useDaemonControl({
+        daemonParams: { addr: "127.0.0.1:7777", publicBaseURL: "http://localhost:7777" },
+        refreshAll: vi.fn(async () => {}),
+        runQuotaSync: vi.fn(async () => true),
+        onError: vi.fn(),
+      }),
+    );
+
+    let firstPromise!: Promise<void>;
+    await act(async () => {
+      firstPromise = result.current.onDaemonCommand("restart");
+      await Promise.resolve();
+      void result.current.onDaemonCommand("restart");
+    });
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    resolveInvoke("restarted");
+    await firstPromise;
+  });
+
+  it("reports post-command refresh errors", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValue("started");
+
+    const refreshAll = vi.fn(async () => {
+      throw new Error("refresh failed");
+    });
+    const onError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDaemonControl({
+        daemonParams: { addr: "127.0.0.1:7777", publicBaseURL: "http://localhost:7777" },
+        refreshAll,
+        runQuotaSync: vi.fn(async () => true),
+        onError,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.onDaemonCommand("start");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(refreshAll).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenLastCalledWith("refresh failed");
+  });
+
   it("cleans pending refresh timer on unmount", async () => {
     const invokeMock = vi.mocked(invoke);
     invokeMock.mockResolvedValue("started");

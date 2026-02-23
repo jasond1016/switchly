@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toErrorMessage } from "../../lib/switchly";
+import { useMountedTimeout } from "../use-mounted-timeout";
 
 const DAEMON_POST_COMMAND_REFRESH_DELAY_MS = 500;
 
@@ -15,22 +16,35 @@ export function useDaemonControl({ daemonParams, refreshAll, runQuotaSync, onErr
   const [daemonBusy, setDaemonBusy] = useState<"start" | "stop" | "restart" | "">("");
   const [daemonOutput, setDaemonOutput] = useState("");
 
-  const refreshTimeoutRef = useRef<number | null>(null);
-  const isMountedRef = useRef(true);
+  const { isMountedRef, cancel: cancelRefresh, schedule: scheduleRefresh } = useMountedTimeout();
+  const commandInFlightRef = useRef(false);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      if (refreshTimeoutRef.current !== null) {
-        window.clearTimeout(refreshTimeoutRef.current);
-        refreshTimeoutRef.current = null;
+  const refreshAfterCommand = useCallback(
+    async (cmd: "start" | "stop" | "restart") => {
+      if (!isMountedRef.current) {
+        return;
       }
-    };
-  }, []);
+      try {
+        await refreshAll();
+        if (cmd === "start" || cmd === "restart") {
+          await runQuotaSync({ silent: true });
+        }
+      } catch (error) {
+        if (!isMountedRef.current) {
+          return;
+        }
+        onError(toErrorMessage(error));
+      }
+    },
+    [isMountedRef, onError, refreshAll, runQuotaSync],
+  );
 
   const onDaemonCommand = useCallback(
     async (cmd: "start" | "stop" | "restart") => {
+      if (commandInFlightRef.current) {
+        return;
+      }
+      commandInFlightRef.current = true;
       setDaemonBusy(cmd);
       onError("");
       setDaemonOutput("");
@@ -48,25 +62,15 @@ export function useDaemonControl({ daemonParams, refreshAll, runQuotaSync, onErr
       } catch (error) {
         onError(toErrorMessage(error));
       } finally {
+        commandInFlightRef.current = false;
         setDaemonBusy("");
-        if (refreshTimeoutRef.current !== null) {
-          window.clearTimeout(refreshTimeoutRef.current);
-        }
-        refreshTimeoutRef.current = window.setTimeout(() => {
-          refreshTimeoutRef.current = null;
-          void (async () => {
-            if (!isMountedRef.current) {
-              return;
-            }
-            await refreshAll();
-            if (cmd === "start" || cmd === "restart") {
-              await runQuotaSync({ silent: true });
-            }
-          })();
+        cancelRefresh();
+        scheduleRefresh(() => {
+          void refreshAfterCommand(cmd);
         }, DAEMON_POST_COMMAND_REFRESH_DELAY_MS);
       }
     },
-    [daemonParams.addr, daemonParams.publicBaseURL, onError, refreshAll, runQuotaSync],
+    [cancelRefresh, daemonParams.addr, daemonParams.publicBaseURL, onError, refreshAfterCommand, scheduleRefresh],
   );
 
   return {
