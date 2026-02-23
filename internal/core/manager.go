@@ -115,20 +115,12 @@ func WithCodexQuotaFetcher(fetcher func(ctx context.Context, httpClient *http.Cl
 
 func (m *Manager) AddAccount(ctx context.Context, in AddAccountInput) (model.Account, error) {
 	_ = ctx
-	if strings.TrimSpace(in.ID) == "" {
-		return model.Account{}, errors.New("id is required")
-	}
-	if strings.TrimSpace(in.Provider) == "" {
-		return model.Account{}, errors.New("provider is required")
-	}
-	if strings.TrimSpace(in.Secrets.AccessToken) == "" {
-		return model.Account{}, errors.New("access_token is required")
+	if err := validateAddAccountInput(in); err != nil {
+		return model.Account{}, err
 	}
 
 	now := time.Now().UTC()
-	if in.Secrets.AccessExpiresAt.IsZero() {
-		in.Secrets.AccessExpiresAt = now.Add(50 * time.Minute)
-	}
+	in.Secrets = normalizeAddAccountSecrets(in.Secrets, now)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -144,16 +136,7 @@ func (m *Manager) AddAccount(ctx context.Context, in AddAccountInput) (model.Acc
 		createdAt = existing.CreatedAt
 	}
 
-	acct := model.Account{
-		ID:               in.ID,
-		Provider:         strings.ToLower(strings.TrimSpace(in.Provider)),
-		Email:            strings.TrimSpace(in.Email),
-		Status:           model.AccountReady,
-		AccessExpiresAt:  in.Secrets.AccessExpiresAt.UTC(),
-		RefreshExpiresAt: in.Secrets.RefreshExpiresAt.UTC(),
-		CreatedAt:        createdAt,
-		UpdatedAt:        now,
-	}
+	acct := buildAccountRecord(in, createdAt, now)
 
 	state.Accounts[in.ID] = acct
 	if state.ActiveAccountID == "" {
@@ -335,17 +318,7 @@ func (m *Manager) SyncQuotaFromCodexAPI(ctx context.Context, accountID string) (
 	}
 
 	now := time.Now().UTC()
-	nextQuota := acct.Quota
-	if snap.Session != nil {
-		nextQuota.Session.UsedPercent = snap.Session.UsedPercent
-		nextQuota.Session.ResetAt = snap.Session.ResetAt
-	}
-	if snap.Weekly != nil {
-		nextQuota.Weekly.UsedPercent = snap.Weekly.UsedPercent
-		nextQuota.Weekly.ResetAt = snap.Weekly.ResetAt
-	}
-	nextQuota.LimitReached = snap.LimitReached || nextQuota.Session.UsedPercent >= 100 || nextQuota.Weekly.UsedPercent >= 100
-	nextQuota.LastUpdated = now
+	nextQuota := mergeQuotaSnapshot(acct.Quota, snap, now)
 
 	acct.Status = model.AccountReady
 	acct.LastError = ""
@@ -363,6 +336,54 @@ func (m *Manager) SyncQuotaFromCodexAPI(ctx context.Context, accountID string) (
 		Quota:           nextQuota,
 		SourceTimestamp: snap.SourceTimestamp,
 	}, nil
+}
+
+func validateAddAccountInput(in AddAccountInput) error {
+	if strings.TrimSpace(in.ID) == "" {
+		return errors.New("id is required")
+	}
+	if strings.TrimSpace(in.Provider) == "" {
+		return errors.New("provider is required")
+	}
+	if strings.TrimSpace(in.Secrets.AccessToken) == "" {
+		return errors.New("access_token is required")
+	}
+	return nil
+}
+
+func normalizeAddAccountSecrets(sec model.AuthSecrets, now time.Time) model.AuthSecrets {
+	if sec.AccessExpiresAt.IsZero() {
+		sec.AccessExpiresAt = now.Add(50 * time.Minute)
+	}
+	return sec
+}
+
+func buildAccountRecord(in AddAccountInput, createdAt, now time.Time) model.Account {
+	return model.Account{
+		ID:               in.ID,
+		Provider:         strings.ToLower(strings.TrimSpace(in.Provider)),
+		Email:            strings.TrimSpace(in.Email),
+		Status:           model.AccountReady,
+		AccessExpiresAt:  in.Secrets.AccessExpiresAt.UTC(),
+		RefreshExpiresAt: in.Secrets.RefreshExpiresAt.UTC(),
+		CreatedAt:        createdAt,
+		UpdatedAt:        now,
+	}
+}
+
+func mergeQuotaSnapshot(current model.QuotaSnapshot, snap quota.Snapshot, now time.Time) model.QuotaSnapshot {
+	next := current
+	if snap.Session != nil {
+		next.Session.UsedPercent = snap.Session.UsedPercent
+		next.Session.ResetAt = snap.Session.ResetAt
+	}
+	if snap.Weekly != nil {
+		next.Weekly.UsedPercent = snap.Weekly.UsedPercent
+		next.Weekly.ResetAt = snap.Weekly.ResetAt
+	}
+	next.LimitReached = snap.LimitReached || next.Session.UsedPercent >= 100 || next.Weekly.UsedPercent >= 100
+	next.LastUpdated = now
+	return next
 }
 
 func (m *Manager) SyncAllQuotasFromCodexAPI(ctx context.Context) (QuotaSyncAllResult, error) {

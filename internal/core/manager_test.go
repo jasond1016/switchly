@@ -35,6 +35,131 @@ func TestShouldSwitch(t *testing.T) {
 	}
 }
 
+func TestValidateAddAccountInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   AddAccountInput
+		wantErr string
+	}{
+		{
+			name: "missing id",
+			input: AddAccountInput{
+				Provider: "codex",
+				Secrets:  model.AuthSecrets{AccessToken: "token"},
+			},
+			wantErr: "id is required",
+		},
+		{
+			name: "missing provider",
+			input: AddAccountInput{
+				ID:      "acc-1",
+				Secrets: model.AuthSecrets{AccessToken: "token"},
+			},
+			wantErr: "provider is required",
+		},
+		{
+			name: "missing access token",
+			input: AddAccountInput{
+				ID:       "acc-1",
+				Provider: "codex",
+			},
+			wantErr: "access_token is required",
+		},
+		{
+			name: "valid input",
+			input: AddAccountInput{
+				ID:       "acc-1",
+				Provider: "codex",
+				Secrets:  model.AuthSecrets{AccessToken: "token"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAddAccountInput(tt.input)
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("expected %q, got %v", tt.wantErr, err)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeQuotaSnapshot(t *testing.T) {
+	now := time.Date(2026, 2, 23, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		current model.QuotaSnapshot
+		snap    quota.Snapshot
+		want    model.QuotaSnapshot
+	}{
+		{
+			name: "preserves missing windows and sets timestamp",
+			current: model.QuotaSnapshot{
+				Session: model.QuotaWindow{UsedPercent: 20},
+				Weekly:  model.QuotaWindow{UsedPercent: 35},
+			},
+			snap: quota.Snapshot{},
+			want: model.QuotaSnapshot{
+				Session:      model.QuotaWindow{UsedPercent: 20},
+				Weekly:       model.QuotaWindow{UsedPercent: 35},
+				LimitReached: false,
+				LastUpdated:  now,
+			},
+		},
+		{
+			name: "derives limit reached from merged values",
+			current: model.QuotaSnapshot{
+				Session: model.QuotaWindow{UsedPercent: 20},
+				Weekly:  model.QuotaWindow{UsedPercent: 40},
+			},
+			snap: quota.Snapshot{
+				Session: &quota.Window{UsedPercent: 100},
+			},
+			want: model.QuotaSnapshot{
+				Session:      model.QuotaWindow{UsedPercent: 100},
+				Weekly:       model.QuotaWindow{UsedPercent: 40},
+				LimitReached: true,
+				LastUpdated:  now,
+			},
+		},
+		{
+			name: "keeps explicit snapshot limit signal",
+			current: model.QuotaSnapshot{
+				Session: model.QuotaWindow{UsedPercent: 10},
+				Weekly:  model.QuotaWindow{UsedPercent: 20},
+			},
+			snap: quota.Snapshot{
+				Weekly:       &quota.Window{UsedPercent: 30},
+				LimitReached: true,
+			},
+			want: model.QuotaSnapshot{
+				Session:      model.QuotaWindow{UsedPercent: 10},
+				Weekly:       model.QuotaWindow{UsedPercent: 30},
+				LimitReached: true,
+				LastUpdated:  now,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeQuotaSnapshot(tt.current, tt.snap, now)
+			if got.Session.UsedPercent != tt.want.Session.UsedPercent ||
+				got.Weekly.UsedPercent != tt.want.Weekly.UsedPercent ||
+				got.LimitReached != tt.want.LimitReached ||
+				!got.LastUpdated.Equal(now) {
+				t.Fatalf("mergeQuotaSnapshot()=%#v want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOrderedCandidatesFillFirst(t *testing.T) {
 	state := model.AppState{
 		Strategy: model.RoutingFillFirst,
