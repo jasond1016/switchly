@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, RefreshCcw, RefreshCw } from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, RefreshCcw, RefreshCw } from "lucide-react";
 import { type RefreshCadence, REFRESH_CADENCE_OPTIONS, type RoutingStrategy, type SyncNotice, toneClass } from "../../lib/switchly";
 
 type ActionBarProps = {
@@ -56,17 +56,20 @@ export function ActionBar({
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">自动刷新</span>
-          <select
-            className="h-8 rounded-md border border-input bg-secondary px-2.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-            value={quotaRefreshCadence}
-            onChange={(e) => onQuotaRefreshCadenceChange(e.currentTarget.value as RefreshCadence)}
-          >
-            {REFRESH_CADENCE_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              className="h-8 appearance-none rounded-md border border-input bg-secondary px-2.5 pr-7 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+              value={quotaRefreshCadence}
+              onChange={(e) => onQuotaRefreshCadenceChange(e.currentTarget.value as RefreshCadence)}
+            >
+              {REFRESH_CADENCE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 text-muted-foreground" />
+          </div>
         </div>
 
         <div className="h-6 w-px bg-border" />
