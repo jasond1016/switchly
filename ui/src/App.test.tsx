@@ -191,6 +191,61 @@ describe("App", () => {
     });
   });
 
+  it("still auto-starts daemon when status succeeds but daemon info fails", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValue("started");
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/v1/status")) {
+        return new Response(
+          JSON.stringify({
+            active_account_id: "acc-main",
+            strategy: "round-robin",
+            accounts: [
+              {
+                id: "acc-main",
+                provider: "codex",
+                status: "ready",
+                quota: {
+                  session: { used_percent: 12, reset_at: "2099-01-02T00:00:00Z" },
+                  weekly: { used_percent: 20, reset_at: "2099-01-07T00:00:00Z" },
+                  limit_reached: false,
+                  last_updated: "2099-01-01T00:00:00Z",
+                },
+                created_at: "2099-01-01T00:00:00Z",
+                updated_at: "2099-01-01T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/daemon/info")) {
+        return new Response("daemon probe failed", { status: 503, statusText: "Service Unavailable" });
+      }
+
+      if (url.endsWith("/v1/accounts/import/codex/candidate")) {
+        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    render(<App />);
+
+    const matches = await screen.findAllByText("acc-main");
+    expect(matches.length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("daemon_start", {
+        addr: "127.0.0.1:7777",
+        publicBaseUrl: "http://localhost:7777",
+      });
+    });
+  });
+
   it("shows account switch errors", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
