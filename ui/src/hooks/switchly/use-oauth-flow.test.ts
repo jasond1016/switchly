@@ -1,6 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useOAuthFlow } from "./use-oauth-flow";
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: vi.fn(async () => {}),
+}));
 
 type ApiRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -15,7 +20,7 @@ describe("useOAuthFlow", () => {
   });
 
   it("logs in and completes pending->success polling", async () => {
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const openUrlMock = vi.mocked(openUrl);
 
     const startSession = {
       state: "state-1",
@@ -61,7 +66,7 @@ describe("useOAuthFlow", () => {
       await result.current.loginWithBrowser();
     });
 
-    expect(openSpy).toHaveBeenCalledWith("https://example.com/auth", "_blank", "noopener,noreferrer");
+    expect(openUrlMock).toHaveBeenCalledWith("https://example.com/auth");
     expect(result.current.oauthPolling).toBe(true);
 
     await act(async () => {
@@ -72,6 +77,48 @@ describe("useOAuthFlow", () => {
     expect(result.current.oauthSession?.status).toBe("success");
     expect(refreshAll).toHaveBeenCalledTimes(1);
     expect(runQuotaSync).toHaveBeenCalledWith({ accountID: "acc-7", silent: true });
+  });
+
+  it("falls back to window.open when opener plugin fails", async () => {
+    const openUrlMock = vi.mocked(openUrl);
+    openUrlMock.mockRejectedValueOnce(new Error("opener unavailable"));
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    const apiRequest = vi.fn(async (path: string) => {
+      if (path === "/v1/oauth/start") {
+        return {
+          state: "state-fallback",
+          provider: "codex",
+          status: "pending",
+          auth_url: "https://example.com/auth-fallback",
+          expires_at: "2099-01-01T00:00:00Z",
+        };
+      }
+      if (path.startsWith("/v1/oauth/status")) {
+        return {
+          state: "state-fallback",
+          provider: "codex",
+          status: "pending",
+          expires_at: "2099-01-01T00:00:00Z",
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const { result } = renderHook(() =>
+      useOAuthFlow({
+        apiRequest: apiRequest as ApiRequest,
+        refreshAll: vi.fn(async () => {}),
+        runQuotaSync: vi.fn(async () => true),
+        onError: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.loginWithBrowser();
+    });
+
+    expect(openSpy).toHaveBeenCalledWith("https://example.com/auth-fallback", "_blank", "noopener,noreferrer");
   });
 
   it("reports start errors", async () => {

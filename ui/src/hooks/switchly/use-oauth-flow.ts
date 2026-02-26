@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useState } from "react";
 import { type ApiRequest, type OAuthSession, toErrorMessage } from "../../lib/switchly";
 import { useMountedTimeout } from "../use-mounted-timeout";
@@ -63,7 +64,11 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
       const session = await apiRequest<OAuthSession>("/v1/oauth/start", { method: "POST", body: JSON.stringify({ provider: "codex" }) });
       setOAuthSession(session);
       if (session.auth_url) {
-        window.open(session.auth_url, "_blank", "noopener,noreferrer");
+        try {
+          await openUrl(session.auth_url);
+        } catch {
+          window.open(session.auth_url, "_blank", "noopener,noreferrer");
+        }
       }
       startOAuthPolling(session.state);
     } catch (error) {
