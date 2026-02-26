@@ -109,6 +109,49 @@ describe("App", () => {
     await screen.findByText("HTTP 503: service unavailable");
   });
 
+  it("does not auto-start daemon when daemon info is available", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValue("started");
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/v1/status")) {
+        return new Response(
+          JSON.stringify({
+            active_account_id: "acc-main",
+            strategy: "round-robin",
+            accounts: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/daemon/info")) {
+        return new Response(
+          JSON.stringify({
+            pid: 321,
+            addr: "127.0.0.1:7777",
+            public_base_url: "http://localhost:7777",
+            restart_supported: true,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/accounts/import/codex/candidate")) {
+        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    render(<App />);
+
+    await screen.findByText("运行中");
+    expect(invokeMock).not.toHaveBeenCalledWith("daemon_start", expect.anything());
+  });
+
   it("auto-starts daemon on app launch when daemon info is unavailable", async () => {
     const invokeMock = vi.mocked(invoke);
     invokeMock.mockResolvedValue("started");

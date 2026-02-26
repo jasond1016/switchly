@@ -10,6 +10,7 @@ export function useDashboardData({ apiRequest, onError }: UseDashboardDataArgs) 
   const [status, setStatus] = useState<StatusSnapshot | null>(null);
   const [daemonInfo, setDaemonInfo] = useState<DaemonInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  const [daemonInfoLoaded, setDaemonInfoLoaded] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const loadStatus = useCallback(async () => {
@@ -23,6 +24,8 @@ export function useDashboardData({ apiRequest, onError }: UseDashboardDataArgs) 
       setDaemonInfo(info);
     } catch {
       setDaemonInfo(null);
+    } finally {
+      setDaemonInfoLoaded(true);
     }
   }, [apiRequest]);
 
@@ -47,6 +50,7 @@ export function useDashboardData({ apiRequest, onError }: UseDashboardDataArgs) 
     status,
     daemonInfo,
     loading,
+    daemonInfoLoaded,
     nowMs,
     loadStatus,
     refreshAllBase,

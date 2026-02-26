@@ -24,7 +24,7 @@ function App() {
 
   const daemonParams = useMemo(() => deriveDaemonParams(baseURL), [baseURL]);
   const apiRequest = useSwitchlyApi(baseURL);
-  const { status, daemonInfo, loading, nowMs, loadStatus, refreshAllBase } = useDashboardData({
+  const { status, daemonInfo, loading, daemonInfoLoaded, nowMs, loadStatus, refreshAllBase } = useDashboardData({
     apiRequest,
     onError: setError,
   });
@@ -81,7 +81,7 @@ function App() {
   }, [refreshAll]);
 
   useEffect(() => {
-    if (loading || daemonInfo !== null || daemonBusy !== "") {
+    if (!daemonInfoLoaded || loading || daemonInfo !== null || daemonBusy !== "") {
       return;
     }
     if (autoStartAttemptedRef.current === baseURL) {
@@ -89,7 +89,7 @@ function App() {
     }
     autoStartAttemptedRef.current = baseURL;
     void onDaemonCommand("start");
-  }, [baseURL, daemonBusy, daemonInfo, loading, onDaemonCommand]);
+  }, [baseURL, daemonBusy, daemonInfo, daemonInfoLoaded, loading, onDaemonCommand]);
 
   const daemonRunning = daemonInfo !== null;
   const oauthUIStatus = oauthStatus(oauthSession);
