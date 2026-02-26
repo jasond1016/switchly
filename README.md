@@ -48,6 +48,7 @@ switchly account add --id <id> --provider codex --access-token <token> [--refres
 switchly account list
 switchly account use --id <id>
 switchly account apply [--id <id>]
+switchly account import-codex [--overwrite-existing=true]
 switchly quota sync [--id <id>]
 switchly quota sync-all
 switchly strategy set --value round-robin|fill-first
@@ -83,5 +84,6 @@ pnpm tauri dev
 - `codex` refresh flow is implemented using `https://auth.openai.com/oauth/token`.
 - `account use` and automatic quota-based switching will apply the selected Codex account tokens to `~/.codex/auth.json`.
 - `account apply` can be used to force re-apply the active account (or a specific account with `--id`).
+- `account import-codex` imports the currently logged-in Codex CLI account from `~/.codex/auth.json`.
 - Daemon API includes `/v1/daemon/info`, `/v1/daemon/shutdown`, `/v1/daemon/restart`.
 - For `go run`, daemon API restart may be unavailable unless `switchlyd` is started with `--restart-cmd`.

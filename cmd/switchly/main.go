@@ -154,9 +154,47 @@ func runAccount(c *apiClient, args []string) error {
 			"account_id": targetID,
 			"action":     "applied",
 		})
+	case "import-codex":
+		fs := flag.NewFlagSet("account import-codex", flag.ContinueOnError)
+		overwriteExisting := fs.Bool("overwrite-existing", true, "overwrite existing account tokens when account already exists")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return runAccountImportCodex(c, *overwriteExisting)
 	default:
 		return fmt.Errorf("unknown account command: %s", args[0])
 	}
+}
+
+type codexImportCandidate struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Email    string `json:"email,omitempty"`
+}
+
+type codexImportCandidateResponse struct {
+	Found         bool                  `json:"found"`
+	Candidate     *codexImportCandidate `json:"candidate,omitempty"`
+	AlreadyExists bool                  `json:"already_exists,omitempty"`
+}
+
+func runAccountImportCodex(c *apiClient, overwriteExisting bool) error {
+	var candidate codexImportCandidateResponse
+	if err := c.get("/v1/accounts/import/codex/candidate", &candidate); err != nil {
+		return err
+	}
+	if !candidate.Found || candidate.Candidate == nil {
+		return fmt.Errorf("no logged-in Codex account found at ~/.codex/auth.json")
+	}
+	if candidate.AlreadyExists && !overwriteExisting {
+		return fmt.Errorf("codex account %q already exists; rerun with --overwrite-existing=true", candidate.Candidate.ID)
+	}
+
+	var out map[string]interface{}
+	if err := c.post("/v1/accounts/import/codex", map[string]bool{"overwrite_existing": overwriteExisting}, &out); err != nil {
+		return err
+	}
+	return printJSON(out)
 }
 
 func runSwitch(c *apiClient, args []string) error {
@@ -663,6 +701,7 @@ func printUsage() {
 	fmt.Println("  account list")
 	fmt.Println("  account use --id <id>")
 	fmt.Println("  account apply [--id <id>]")
+	fmt.Println("  account import-codex [--overwrite-existing=true]")
 	fmt.Println("  quota sync [--id <id>]")
 	fmt.Println("  quota sync-all")
 	fmt.Println("  strategy set --value round-robin|fill-first")
