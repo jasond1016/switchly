@@ -1,5 +1,5 @@
 import { Loader2, RefreshCw, Zap } from "lucide-react";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { AccountsTable } from "./components/switchly/accounts-table";
 import { ActionBar } from "./components/switchly/action-bar";
 import { DaemonPanel } from "./components/switchly/daemon-panel";
@@ -74,10 +74,22 @@ function App() {
     await refreshAllBase();
     await discoverCodexImportCandidate();
   }, [discoverCodexImportCandidate, refreshAllBase]);
+  const autoStartAttemptedRef = useRef<string>("");
 
   useEffect(() => {
     void refreshAll();
   }, [refreshAll]);
+
+  useEffect(() => {
+    if (loading || daemonInfo !== null || daemonBusy !== "") {
+      return;
+    }
+    if (autoStartAttemptedRef.current === baseURL) {
+      return;
+    }
+    autoStartAttemptedRef.current = baseURL;
+    void onDaemonCommand("start");
+  }, [baseURL, daemonBusy, daemonInfo, loading, onDaemonCommand]);
 
   const daemonRunning = daemonInfo !== null;
   const oauthUIStatus = oauthStatus(oauthSession);

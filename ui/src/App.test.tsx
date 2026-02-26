@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => "ok"),
@@ -106,6 +107,45 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByText("HTTP 503: service unavailable");
+  });
+
+  it("auto-starts daemon on app launch when daemon info is unavailable", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValue("started");
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/v1/status")) {
+        return new Response(
+          JSON.stringify({
+            active_account_id: "acc-main",
+            strategy: "round-robin",
+            accounts: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/daemon/info")) {
+        return new Response("daemon down", { status: 503, statusText: "Service Unavailable" });
+      }
+
+      if (url.endsWith("/v1/accounts/import/codex/candidate")) {
+        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("daemon_start", {
+        addr: "127.0.0.1:7777",
+        publicBaseUrl: "http://localhost:7777",
+      });
+    });
   });
 
   it("shows account switch errors", async () => {
