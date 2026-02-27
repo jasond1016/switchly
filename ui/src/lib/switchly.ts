@@ -153,6 +153,27 @@ export function fmtResetHint(value: string | undefined, nowMs: number): string {
   return `${Math.ceil(delta / day)}天后`;
 }
 
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+export function fmtResetExactUTC(value: string | undefined): string | undefined {
+  if (isZeroTime(value)) {
+    return undefined;
+  }
+  const d = new Date(value ?? "");
+  if (Number.isNaN(d.getTime())) {
+    return undefined;
+  }
+  const yyyy = d.getUTCFullYear();
+  const mm = pad2(d.getUTCMonth() + 1);
+  const dd = pad2(d.getUTCDate());
+  const hh = pad2(d.getUTCHours());
+  const min = pad2(d.getUTCMinutes());
+  const ss = pad2(d.getUTCSeconds());
+  return `重置时间 ${yyyy}-${mm}-${dd} ${hh}:${min}:${ss} UTC`;
+}
+
 export function deriveDaemonParams(baseURL: string): { addr: string; publicBaseURL: string } {
   try {
     const parsed = new URL(baseURL);

@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import { clampPercent, fmtResetHint, remainingPercent, type QuotaWindow } from "../../lib/switchly";
+import { clampPercent, fmtResetExactUTC, fmtResetHint, remainingPercent, type QuotaWindow } from "../../lib/switchly";
 
 type QuotaCellProps = {
   label: string;
@@ -11,6 +11,8 @@ type QuotaCellProps = {
 export function QuotaCell({ label, window, nowMs, limitReached }: QuotaCellProps) {
   const used = clampPercent(window.used_percent);
   const remaining = remainingPercent(used);
+  const resetHint = fmtResetHint(window.reset_at, nowMs);
+  const resetExactUTC = fmtResetExactUTC(window.reset_at);
   const tone = remaining >= 60 ? "success" : remaining >= 30 ? "warning" : "destructive";
   const toneText = tone === "success" ? "text-success" : tone === "warning" ? "text-yellow-700" : "text-destructive";
   const toneBar = tone === "success" ? "bg-success" : tone === "warning" ? "bg-warning" : "bg-destructive";
@@ -28,7 +30,9 @@ export function QuotaCell({ label, window, nowMs, limitReached }: QuotaCellProps
         <span className={`text-xs font-mono font-medium ${toneText}`}>
           {remaining}% <span className="text-muted-foreground font-normal">剩余</span>
         </span>
-        <span className="text-[10px] font-mono text-muted-foreground">{fmtResetHint(window.reset_at, nowMs)}</span>
+        <span className="text-[10px] font-mono text-muted-foreground" title={resetExactUTC}>
+          {resetHint}
+        </span>
       </div>
       <div className="mt-0.5 text-[10px] font-mono text-muted-foreground">已用 {used}%</div>
     </div>
