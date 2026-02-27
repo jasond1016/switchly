@@ -8,6 +8,7 @@ Current MVP scope:
 - Automatic switch decision on quota/rate-limit errors
 - Windows DPAPI-encrypted local secret storage
 - CLI + daemon architecture
+- Desktop tray/menu bar control (Windows tray, macOS menu bar, Linux appindicator/tray)
 
 ## Binaries
 
@@ -71,6 +72,22 @@ cd ui
 pnpm install
 pnpm tauri dev
 ```
+
+### Tray / Menu Bar
+
+- Cross-platform implementation:
+  - Windows: system tray menu
+  - macOS: menu bar extra
+  - Linux: appindicator/tray menu (desktop environment dependent)
+- Expanded tray menu shows all accounts with session+weekly quota usage and marks the active account.
+- Tray menu supports:
+  - daemon status + start/stop/restart
+  - account quick switch
+  - routing mode switch (`fill-first` / `round-robin`)
+  - open dashboard
+  - launch-at-login toggle
+  - quit app
+- Closing the dashboard window hides it to tray/menu bar; use tray `Quit` to fully exit.
 
 ## Data locations
 
