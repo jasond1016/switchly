@@ -400,8 +400,11 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    TrayIconBuilder::with_id(TRAY_ID)
-        .menu(&initial_menu)
+    let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID).menu(&initial_menu);
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray_builder = tray_builder.icon(icon);
+    }
+    tray_builder
         .on_menu_event(|app, event| handle_tray_menu_event(app, event.id().as_ref()))
         .build(app)
         .map_err(|e| e.to_string())?;

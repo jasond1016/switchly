@@ -1,4 +1,4 @@
-import { Loader2, RefreshCw, Zap } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AccountsTable } from "./components/switchly/accounts-table";
@@ -133,8 +133,8 @@ function App() {
       <div className="mx-auto max-w-[1400px] px-6 py-6">
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
-              <Zap className="size-4 text-primary-foreground" />
+            <div className="flex size-8 items-center justify-center rounded-lg border border-border bg-card">
+              <img src="/switchly-logo.png" alt="Switchly logo" className="size-5 object-contain" />
             </div>
             <div>
               <h1 className="text-lg font-semibold tracking-tight text-foreground">Switchly</h1>

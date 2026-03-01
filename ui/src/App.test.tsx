@@ -407,7 +407,7 @@ describe("App", () => {
   });
 
   it("refreshes dashboard when tray refresh event is received", async () => {
-    let trayHandler: (() => void) | null = null;
+    let trayHandler: (() => void) | undefined;
     listenMock.mockImplementation(async (_event: string, handler: () => void) => {
       trayHandler = handler;
       return () => {};
@@ -452,8 +452,10 @@ describe("App", () => {
       expect(statusCallCount(fetchMock)).toBeGreaterThanOrEqual(1);
     });
 
-    expect(trayHandler).not.toBeNull();
-    trayHandler?.();
+    if (!trayHandler) {
+      throw new Error("tray refresh handler was not registered");
+    }
+    trayHandler();
 
     await waitFor(() => {
       expect(statusCallCount(fetchMock)).toBeGreaterThanOrEqual(2);
