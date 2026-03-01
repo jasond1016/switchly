@@ -32,7 +32,7 @@ pnpm tauri dev
 
 - Base URL is configurable in the top bar (default: `http://127.0.0.1:7777`).
 - OAuth uses browser flow and polls `/v1/oauth/status`.
-- Tray/menu bar shows all accounts with session + weekly remaining quota and active account marker.
+- Tray/menu bar shows all accounts with session + weekly remaining quota and uses native checkmark for the active account.
 - Tray/menu bar includes daemon controls, account switch, strategy switch, open dashboard, launch-at-login toggle, and quit.
 - Closing main window hides to tray/menu bar; use tray `Quit` to fully exit.
 - If `cargo check` fails with `edition2024 is required`, your Rust/Cargo toolchain is too old for the currently resolved Tauri dependency graph. Upgrade Rust toolchain first.

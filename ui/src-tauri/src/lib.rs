@@ -157,15 +157,10 @@ fn remaining_pct(used_percent: f64) -> u8 {
     100u8.saturating_sub(fmt_pct(used_percent))
 }
 
-fn account_menu_label(account: &AccountSnapshot, active_account_id: Option<&str>) -> String {
-    let marker = if active_account_id == Some(account.id.as_str()) {
-        "->"
-    } else {
-        "  "
-    };
+fn account_menu_label(account: &AccountSnapshot) -> String {
     let limit = if account.quota.limit_reached { " !" } else { "" };
     format!(
-        "{marker} {} | S:{}% W:{}%{}",
+        "{} | S:{}% W:{}%{}",
         account.id,
         remaining_pct(account.quota.session.used_percent),
         remaining_pct(account.quota.weekly.used_percent),
@@ -251,8 +246,10 @@ fn refresh_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         } else {
             for account in &status.accounts {
                 let id = format!("{MENU_ACCOUNT_PREFIX}{}", account.id);
+                let active = status.active_account_id.as_deref() == Some(account.id.as_str());
                 builder = builder.item(
-                    &MenuItemBuilder::with_id(id, account_menu_label(account, status.active_account_id.as_deref()))
+                    &CheckMenuItemBuilder::with_id(id, account_menu_label(account))
+                        .checked(active)
                         .build(app)
                         .map_err(|e| e.to_string())?,
                 );
@@ -503,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn account_menu_label_marks_active_account_and_limit() {
+    fn account_menu_label_formats_remaining_and_limit() {
         let account = AccountSnapshot {
             id: "acc-a".to_string(),
             quota: QuotaSnapshot {
@@ -513,11 +510,8 @@ mod tests {
             },
         };
 
-        let active = account_menu_label(&account, Some("acc-a"));
-        assert_eq!(active, "-> acc-a | S:78% W:19% !");
-
-        let inactive = account_menu_label(&account, Some("acc-b"));
-        assert_eq!(inactive, "   acc-a | S:78% W:19% !");
+        let label = account_menu_label(&account);
+        assert_eq!(label, "acc-a | S:78% W:19% !");
     }
 
     #[test]

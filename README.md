@@ -79,7 +79,7 @@ pnpm tauri dev
   - Windows: system tray menu
   - macOS: menu bar extra
   - Linux: appindicator/tray menu (desktop environment dependent)
-- Expanded tray menu shows all accounts with session+weekly remaining quota and marks the active account.
+- Expanded tray menu shows all accounts with session+weekly remaining quota and uses native checkmark for the active account.
 - Tray menu supports:
   - daemon status + start/stop/restart
   - account quick switch
