@@ -153,6 +153,10 @@ fn fmt_pct(value: f64) -> u8 {
     value.round().clamp(0.0, 100.0) as u8
 }
 
+fn remaining_pct(used_percent: f64) -> u8 {
+    100u8.saturating_sub(fmt_pct(used_percent))
+}
+
 fn account_menu_label(account: &AccountSnapshot, active_account_id: Option<&str>) -> String {
     let marker = if active_account_id == Some(account.id.as_str()) {
         "->"
@@ -163,8 +167,8 @@ fn account_menu_label(account: &AccountSnapshot, active_account_id: Option<&str>
     format!(
         "{marker} {} | S:{}% W:{}%{}",
         account.id,
-        fmt_pct(account.quota.session.used_percent),
-        fmt_pct(account.quota.weekly.used_percent),
+        remaining_pct(account.quota.session.used_percent),
+        remaining_pct(account.quota.weekly.used_percent),
         limit
     )
 }
@@ -230,7 +234,7 @@ fn refresh_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         )
         .separator()
         .item(
-            &MenuItemBuilder::new("Accounts (session + weekly)")
+            &MenuItemBuilder::new("Accounts (session + weekly remaining)")
                 .enabled(false)
                 .build(app)
                 .map_err(|e| e.to_string())?,
@@ -490,6 +494,15 @@ mod tests {
     }
 
     #[test]
+    fn remaining_pct_converts_from_used_percent() {
+        assert_eq!(remaining_pct(0.0), 100);
+        assert_eq!(remaining_pct(12.2), 88);
+        assert_eq!(remaining_pct(12.6), 87);
+        assert_eq!(remaining_pct(100.0), 0);
+        assert_eq!(remaining_pct(120.0), 0);
+    }
+
+    #[test]
     fn account_menu_label_marks_active_account_and_limit() {
         let account = AccountSnapshot {
             id: "acc-a".to_string(),
@@ -501,10 +514,10 @@ mod tests {
         };
 
         let active = account_menu_label(&account, Some("acc-a"));
-        assert_eq!(active, "-> acc-a | S:22% W:81% !");
+        assert_eq!(active, "-> acc-a | S:78% W:19% !");
 
         let inactive = account_menu_label(&account, Some("acc-b"));
-        assert_eq!(inactive, "   acc-a | S:22% W:81% !");
+        assert_eq!(inactive, "   acc-a | S:78% W:19% !");
     }
 
     #[test]
