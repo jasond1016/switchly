@@ -247,6 +247,29 @@ func (m *Manager) Status(ctx context.Context) (StatusSnapshot, error) {
 	}, nil
 }
 
+func (m *Manager) CodexImportStatus(ctx context.Context, accountID string, incoming model.AuthSecrets) (exists bool, needsImport bool, err error) {
+	_ = ctx
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state, err := m.stateStore.Load()
+	if err != nil {
+		return false, false, err
+	}
+
+	_, exists = state.Accounts[accountID]
+	if !exists {
+		return false, true, nil
+	}
+
+	current, err := m.secrets.Get(accountID)
+	if err != nil {
+		// If we can't read persisted secrets for an existing account, force import to self-heal.
+		return true, true, nil
+	}
+	return true, codexSecretsNeedImport(current, incoming), nil
+}
+
 func (m *Manager) UpdateQuota(ctx context.Context, accountID string, quota model.QuotaSnapshot) error {
 	_ = ctx
 	m.mu.Lock()
@@ -384,6 +407,22 @@ func mergeQuotaSnapshot(current model.QuotaSnapshot, snap quota.Snapshot, now ti
 	next.LimitReached = snap.LimitReached || next.Session.UsedPercent >= 100 || next.Weekly.UsedPercent >= 100
 	next.LastUpdated = now
 	return next
+}
+
+func codexSecretsNeedImport(current, incoming model.AuthSecrets) bool {
+	incomingAccountID := strings.TrimSpace(incoming.AccountID)
+	currentAccountID := strings.TrimSpace(current.AccountID)
+	if incomingAccountID != "" && incomingAccountID != currentAccountID {
+		return true
+	}
+
+	incomingRefresh := strings.TrimSpace(incoming.RefreshToken)
+	currentRefresh := strings.TrimSpace(current.RefreshToken)
+	if incomingRefresh != "" {
+		return incomingRefresh != currentRefresh
+	}
+
+	return strings.TrimSpace(incoming.AccessToken) != strings.TrimSpace(current.AccessToken)
 }
 
 func (m *Manager) SyncAllQuotasFromCodexAPI(ctx context.Context) (QuotaSyncAllResult, error) {

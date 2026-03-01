@@ -157,6 +157,7 @@ type codexImportCandidateResponse struct {
 	Found         bool                  `json:"found"`
 	Candidate     *codexImportCandidate `json:"candidate,omitempty"`
 	AlreadyExists bool                  `json:"already_exists,omitempty"`
+	NeedsImport   bool                  `json:"needs_import"`
 }
 
 func (s *APIServer) handleCodexImportCandidate(w http.ResponseWriter, r *http.Request) {
@@ -178,12 +179,11 @@ func (s *APIServer) handleCodexImportCandidate(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	accounts, err := s.manager.ListAccounts(r.Context())
+	exists, needsImport, err := s.manager.CodexImportStatus(r.Context(), localAccount.ID, localAccount.Secrets)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	exists := containsAccount(accounts, localAccount.ID)
 	writeJSON(w, http.StatusOK, codexImportCandidateResponse{
 		Found: true,
 		Candidate: &codexImportCandidate{
@@ -193,6 +193,7 @@ func (s *APIServer) handleCodexImportCandidate(w http.ResponseWriter, r *http.Re
 			AccountIDKnown: strings.TrimSpace(localAccount.Secrets.AccountID) != "",
 		},
 		AlreadyExists: exists,
+		NeedsImport:   needsImport,
 	})
 }
 

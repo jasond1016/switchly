@@ -118,6 +118,7 @@ describe("useDashboardActions", () => {
             account_id_present: true,
           },
           already_exists: false,
+          needs_import: true,
         };
       }
       throw new Error(`unexpected path: ${path}`);
@@ -148,6 +149,40 @@ describe("useDashboardActions", () => {
     });
 
     expect(apiRequest).toHaveBeenCalledTimes(1);
+    expect(result.current.codexImportCandidate).toBeNull();
+  });
+
+  it("does not show import candidate when local credentials are already synced", async () => {
+    const apiRequest = vi.fn(async (path: string) => {
+      if (path === "/v1/accounts/import/codex/candidate") {
+        return {
+          found: true,
+          candidate: {
+            id: "local-1",
+            provider: "codex",
+            account_id_present: true,
+          },
+          already_exists: true,
+          needs_import: false,
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const { result } = renderHook(() =>
+      useDashboardActions({
+        apiRequest: apiRequest as ApiRequest,
+        loadStatus: vi.fn(async () => {}),
+        runQuotaSync: vi.fn(async () => true),
+        onError: vi.fn(),
+        onNotice: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.discoverCodexImportCandidate();
+    });
+
     expect(result.current.codexImportCandidate).toBeNull();
   });
 

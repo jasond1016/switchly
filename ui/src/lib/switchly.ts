@@ -72,6 +72,7 @@ export type CodexImportCandidateResponse = {
   found: boolean;
   candidate?: CodexImportCandidate;
   already_exists?: boolean;
+  needs_import: boolean;
 };
 
 export type CodexImportResponse = {

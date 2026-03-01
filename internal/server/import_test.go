@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"switchly/internal/core"
@@ -17,7 +18,7 @@ import (
 
 func TestCodexImportCandidateFound(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestUserHome(t, home)
 	if err := seedCodexAuthFile(filepath.Join(home, ".codex", "auth.json"), map[string]any{
 		"id_token":      buildTestIDToken(map[string]any{"email": "local@example.com"}),
 		"access_token":  "access-1",
@@ -39,6 +40,7 @@ func TestCodexImportCandidateFound(t *testing.T) {
 	var body struct {
 		Found         bool `json:"found"`
 		AlreadyExists bool `json:"already_exists"`
+		NeedsImport   bool `json:"needs_import"`
 		Candidate     struct {
 			ID       string `json:"id"`
 			Provider string `json:"provider"`
@@ -54,6 +56,9 @@ func TestCodexImportCandidateFound(t *testing.T) {
 	if body.AlreadyExists {
 		t.Fatalf("expected already_exists=false")
 	}
+	if !body.NeedsImport {
+		t.Fatalf("expected needs_import=true when account does not exist in switchly")
+	}
 	if body.Candidate.ID != "codex:local@example.com" {
 		t.Fatalf("unexpected candidate id: %q", body.Candidate.ID)
 	}
@@ -62,9 +67,65 @@ func TestCodexImportCandidateFound(t *testing.T) {
 	}
 }
 
+func TestCodexImportCandidateNoPromptWhenSecretsMatch(t *testing.T) {
+	home := t.TempDir()
+	setTestUserHome(t, home)
+	if err := seedCodexAuthFile(filepath.Join(home, ".codex", "auth.json"), map[string]any{
+		"id_token":      buildTestIDToken(map[string]any{"email": "local@example.com"}),
+		"access_token":  "access-1",
+		"refresh_token": "refresh-1",
+		"account_id":    "acc-1",
+	}); err != nil {
+		t.Fatalf("seed codex auth file: %v", err)
+	}
+
+	mgr, _ := newTestManager()
+	if _, err := mgr.AddAccount(context.Background(), core.AddAccountInput{
+		ID:       "codex:local@example.com",
+		Provider: "codex",
+		Email:    "local@example.com",
+		Secrets: model.AuthSecrets{
+			AccessToken:  "access-1",
+			RefreshToken: "refresh-1",
+			AccountID:    "acc-1",
+		},
+	}); err != nil {
+		t.Fatalf("preload account: %v", err)
+	}
+
+	api := New(mgr, nil, nil).Handler()
+	req := httptest.NewRequest(http.MethodGet, "/v1/accounts/import/codex/candidate", nil)
+	rec := httptest.NewRecorder()
+	api.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	found, _ := body["found"].(bool)
+	alreadyExists, _ := body["already_exists"].(bool)
+	if !found || !alreadyExists {
+		t.Fatalf("expected found=true and already_exists=true")
+	}
+	needsImportRaw, ok := body["needs_import"]
+	if !ok {
+		t.Fatalf("expected needs_import field to be present")
+	}
+	needsImport, ok := needsImportRaw.(bool)
+	if !ok {
+		t.Fatalf("expected needs_import to be a bool, got %T", needsImportRaw)
+	}
+	if needsImport {
+		t.Fatalf("expected needs_import=false when local and persisted credentials match")
+	}
+}
+
 func TestCodexImportCandidateNotFound(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestUserHome(t, home)
 
 	mgr, _ := newTestManager()
 	api := New(mgr, nil, nil).Handler()
@@ -89,7 +150,7 @@ func TestCodexImportCandidateNotFound(t *testing.T) {
 
 func TestCodexImportCreatesAndUpdates(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestUserHome(t, home)
 	authPath := filepath.Join(home, ".codex", "auth.json")
 	if err := seedCodexAuthFile(authPath, map[string]any{
 		"id_token":      buildTestIDToken(map[string]any{"email": "local@example.com"}),
@@ -160,7 +221,7 @@ func TestCodexImportCreatesAndUpdates(t *testing.T) {
 
 func TestCodexImportConflictWhenOverwriteDisabled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestUserHome(t, home)
 	authPath := filepath.Join(home, ".codex", "auth.json")
 	if err := seedCodexAuthFile(authPath, map[string]any{
 		"id_token":      buildTestIDToken(map[string]any{"email": "local@example.com"}),
@@ -252,4 +313,20 @@ func seedCodexAuthFile(path string, tokens map[string]any) error {
 func buildTestIDToken(claims map[string]any) string {
 	raw, _ := json.Marshal(claims)
 	return "header." + base64.RawURLEncoding.EncodeToString(raw) + ".signature"
+}
+
+func setTestUserHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	volume := filepath.VolumeName(home)
+	if volume != "" {
+		t.Setenv("HOMEDRIVE", volume)
+		homedir := strings.TrimPrefix(home, volume)
+		if homedir == "" {
+			homedir = string(filepath.Separator)
+		}
+		t.Setenv("HOMEPATH", homedir)
+	}
 }

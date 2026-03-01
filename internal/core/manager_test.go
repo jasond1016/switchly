@@ -559,6 +559,83 @@ func TestSyncAllQuotasFromCodexAPIWithNoAccounts(t *testing.T) {
 	}
 }
 
+func TestCodexSecretsNeedImport(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  model.AuthSecrets
+		incoming model.AuthSecrets
+		want     bool
+	}{
+		{
+			name: "same refresh token and account id means no import",
+			current: model.AuthSecrets{
+				AccessToken:  "old-access",
+				RefreshToken: "refresh-1",
+				AccountID:    "acc-1",
+			},
+			incoming: model.AuthSecrets{
+				AccessToken:  "new-access",
+				RefreshToken: "refresh-1",
+				AccountID:    "acc-1",
+			},
+			want: false,
+		},
+		{
+			name: "refresh token mismatch requires import",
+			current: model.AuthSecrets{
+				RefreshToken: "refresh-1",
+				AccountID:    "acc-1",
+			},
+			incoming: model.AuthSecrets{
+				RefreshToken: "refresh-2",
+				AccountID:    "acc-1",
+			},
+			want: true,
+		},
+		{
+			name: "account id mismatch requires import",
+			current: model.AuthSecrets{
+				RefreshToken: "refresh-1",
+				AccountID:    "acc-1",
+			},
+			incoming: model.AuthSecrets{
+				RefreshToken: "refresh-1",
+				AccountID:    "acc-2",
+			},
+			want: true,
+		},
+		{
+			name: "fallback to access token when refresh token is empty",
+			current: model.AuthSecrets{
+				AccessToken: "access-1",
+			},
+			incoming: model.AuthSecrets{
+				AccessToken: "access-2",
+			},
+			want: true,
+		},
+		{
+			name: "fallback access token equal means no import",
+			current: model.AuthSecrets{
+				AccessToken: "access-1",
+			},
+			incoming: model.AuthSecrets{
+				AccessToken: "access-1",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := codexSecretsNeedImport(tt.current, tt.incoming)
+			if got != tt.want {
+				t.Fatalf("codexSecretsNeedImport()=%v want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 type fakeStateStore struct {
 	state     model.AppState
 	saveErr   error

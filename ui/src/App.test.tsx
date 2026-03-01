@@ -68,7 +68,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -108,7 +111,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -150,7 +156,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -185,7 +194,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -238,7 +250,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -311,7 +326,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       if (url.endsWith("/v1/accounts/acc-alt/activate")) {
@@ -382,6 +400,7 @@ describe("App", () => {
               account_id_present: true,
             },
             already_exists: false,
+            needs_import: true,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -440,7 +459,10 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ found: false, needs_import: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       throw new Error(`unexpected request: ${url}`);

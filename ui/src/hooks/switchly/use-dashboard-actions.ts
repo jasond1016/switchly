@@ -50,9 +50,11 @@ export function useDashboardActions({ apiRequest, loadStatus, reloadDashboard, r
     }
     try {
       const out = await apiRequest<CodexImportCandidateResponse>("/v1/accounts/import/codex/candidate");
-      if (out.found && out.candidate) {
-        setCodexImportCandidate((prev) => (prev?.found ? prev : out));
+      if (out.found && out.candidate && out.needs_import === true) {
+        setCodexImportCandidate(out);
+        return;
       }
+      setCodexImportCandidate(null);
     } catch {
       // Keep dashboard rendering smooth when discovery API is unavailable.
     }
