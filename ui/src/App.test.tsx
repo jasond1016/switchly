@@ -3,13 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { invoke } from "@tauri-apps/api/core";
 
+const { listenMock } = vi.hoisted(() => ({
+  listenMock: vi.fn(),
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => "ok"),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: listenMock,
 }));
 
 describe("App", () => {
   beforeEach(() => {
     localStorage.clear();
+    listenMock.mockReset();
+    listenMock.mockResolvedValue(() => {});
   });
 
   afterEach(() => {
@@ -394,6 +404,60 @@ describe("App", () => {
 
     expect(screen.queryByText("检测到本地 Codex 登录，可导入 Switchly 账号列表")).toBeNull();
     expect(candidateCalls).toBe(1);
+  });
+
+  it("refreshes dashboard when tray refresh event is received", async () => {
+    let trayHandler: (() => void) | null = null;
+    listenMock.mockImplementation(async (_event: string, handler: () => void) => {
+      trayHandler = handler;
+      return () => {};
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/v1/status")) {
+        return new Response(
+          JSON.stringify({
+            active_account_id: "acc-main",
+            strategy: "round-robin",
+            accounts: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/daemon/info")) {
+        return new Response(
+          JSON.stringify({
+            pid: 321,
+            addr: "127.0.0.1:7777",
+            public_base_url: "http://localhost:7777",
+            restart_supported: true,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/accounts/import/codex/candidate")) {
+        return new Response(JSON.stringify({ found: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(statusCallCount(fetchMock)).toBeGreaterThanOrEqual(1);
+    });
+
+    expect(trayHandler).not.toBeNull();
+    trayHandler?.();
+
+    await waitFor(() => {
+      expect(statusCallCount(fetchMock)).toBeGreaterThanOrEqual(2);
+    });
   });
 });
 

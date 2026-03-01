@@ -6,6 +6,7 @@ use std::time::Duration;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime, WindowEvent};
+use tauri::Emitter;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -20,6 +21,7 @@ const MENU_STRATEGY_ROUND_ROBIN: &str = "strategy_round_robin";
 const MENU_TOGGLE_AUTOSTART: &str = "toggle_autostart";
 const MENU_QUIT: &str = "quit";
 const MENU_ACCOUNT_PREFIX: &str = "account:";
+const EVENT_DASHBOARD_REFRESH: &str = "switchly://dashboard-refresh";
 
 #[tauri::command]
 fn daemon_start(addr: String, public_base_url: String) -> Result<String, String> {
@@ -316,7 +318,27 @@ fn show_dashboard<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+fn tray_event_requires_dashboard_refresh(event_id: &str) -> bool {
+    matches!(
+        event_id,
+        MENU_REFRESH
+            | MENU_DAEMON_START
+            | MENU_DAEMON_STOP
+            | MENU_DAEMON_RESTART
+            | MENU_STRATEGY_FILL_FIRST
+            | MENU_STRATEGY_ROUND_ROBIN
+            | MENU_TOGGLE_AUTOSTART
+    ) || event_id.starts_with(MENU_ACCOUNT_PREFIX)
+}
+
+fn emit_dashboard_refresh<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(err) = app.emit(EVENT_DASHBOARD_REFRESH, ()) {
+        eprintln!("emit dashboard refresh event failed: {err}");
+    }
+}
+
 fn handle_tray_menu_event<R: Runtime>(app: &AppHandle<R>, event_id: &str) {
+    let should_refresh_dashboard = tray_event_requires_dashboard_refresh(event_id);
     let result = if event_id == MENU_OPEN_DASHBOARD {
         show_dashboard(app);
         Ok("ok".to_string())
@@ -348,6 +370,8 @@ fn handle_tray_menu_event<R: Runtime>(app: &AppHandle<R>, event_id: &str) {
 
     if let Err(err) = result {
         eprintln!("tray action `{event_id}` failed: {err}");
+    } else if should_refresh_dashboard {
+        emit_dashboard_refresh(app);
     }
     if let Err(err) = refresh_tray_menu(app) {
         eprintln!("refresh tray menu failed: {err}");
@@ -528,5 +552,18 @@ mod tests {
 
         let long = shorten_error("abcdefghijklmnopqrstuvwxyz0123456789---suffix-extra-long");
         assert_eq!(long, "abcdefghijklmnopqrstuvwxyz0123456789---suffix-ex...");
+    }
+
+    #[test]
+    fn tray_event_requires_dashboard_refresh_matches_expected_ids() {
+        assert!(tray_event_requires_dashboard_refresh(MENU_REFRESH));
+        assert!(tray_event_requires_dashboard_refresh(MENU_DAEMON_START));
+        assert!(tray_event_requires_dashboard_refresh(MENU_STRATEGY_ROUND_ROBIN));
+        assert!(tray_event_requires_dashboard_refresh(MENU_TOGGLE_AUTOSTART));
+        assert!(tray_event_requires_dashboard_refresh("account:acc-a"));
+
+        assert!(!tray_event_requires_dashboard_refresh(MENU_OPEN_DASHBOARD));
+        assert!(!tray_event_requires_dashboard_refresh(MENU_QUIT));
+        assert!(!tray_event_requires_dashboard_refresh("unknown"));
     }
 }

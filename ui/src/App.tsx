@@ -1,5 +1,6 @@
 import { Loader2, RefreshCw, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { AccountsTable } from "./components/switchly/accounts-table";
 import { ActionBar } from "./components/switchly/action-bar";
 import { DaemonPanel } from "./components/switchly/daemon-panel";
@@ -17,6 +18,7 @@ import { deriveDaemonParams, oauthStatus } from "./lib/switchly";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:7777";
 const BASE_URL_KEY = "switchly-ui-base-url";
+const DASHBOARD_REFRESH_EVENT = "switchly://dashboard-refresh";
 
 function App() {
   const [baseURL, setBaseURL] = useLocalStorageState(BASE_URL_KEY, DEFAULT_BASE_URL);
@@ -78,6 +80,32 @@ function App() {
 
   useEffect(() => {
     void refreshAll();
+  }, [refreshAll]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | null = null;
+
+    void listen(DASHBOARD_REFRESH_EVENT, () => {
+      void refreshAll();
+    })
+      .then((off) => {
+        if (!active) {
+          off();
+          return;
+        }
+        unlisten = off;
+      })
+      .catch(() => {
+        // Ignore listener setup failures in non-Tauri environments.
+      });
+
+    return () => {
+      active = false;
+      if (unlisten) {
+        unlisten();
+      }
+    };
   }, [refreshAll]);
 
   useEffect(() => {
