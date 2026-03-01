@@ -55,7 +55,13 @@ export function AccountsTable({ accounts, activeAccountID, nowMs, onUseAccount, 
                   <td className="px-3 py-3 align-top font-mono text-xs text-muted-foreground">{fmtTime(acc.access_expires_at)}</td>
                   <td className="px-3 py-3 align-top font-mono text-xs text-muted-foreground">{fmtTime(acc.last_refresh_at)}</td>
                   <td className="px-3 py-3 align-top">
-                    <QuotaCell label="Session" window={acc.quota.session} nowMs={nowMs} limitReached={acc.quota.limit_reached} />
+                    <QuotaCell
+                      label="Session"
+                      window={acc.quota.session}
+                      nowMs={nowMs}
+                      limitReached={acc.quota.limit_reached}
+                      supported={acc.quota.session_supported !== false}
+                    />
                   </td>
                   <td className="px-3 py-3 align-top">
                     <QuotaCell label="Weekly" window={acc.quota.weekly} nowMs={nowMs} limitReached={acc.quota.limit_reached} />

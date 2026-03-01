@@ -70,18 +70,46 @@ func FetchCodexSnapshot(ctx context.Context, httpClient *http.Client, accessToke
 		SourceTimestamp: time.Now().UTC(),
 		LimitReached:    raw.RateLimit.LimitReached,
 	}
-	// Keep behavior resilient if one window is absent.
-	if raw.RateLimit.PrimaryWindow != nil {
-		snap.Session = toWindow(&rawWindow{
-			UsedPercent: raw.RateLimit.PrimaryWindow.UsedPercent,
-			ResetsAt:    raw.RateLimit.PrimaryWindow.ResetAt,
-		})
+	// Primary/secondary mapping differs by account tier.
+	// Paid accounts usually return both windows (primary=session, secondary=weekly).
+	// Free accounts may return only one long-horizon window via primary (weekly).
+	primary := toWindowFromAPI(raw.RateLimit.PrimaryWindow)
+	secondary := toWindowFromAPI(raw.RateLimit.SecondaryWindow)
+	if secondaryLooksPlaceholder(secondary) && looksLikeWeeklyOnlyPrimary(primary, snap.SourceTimestamp) {
+		secondary = nil
 	}
-	if raw.RateLimit.SecondaryWindow != nil {
-		snap.Weekly = toWindow(&rawWindow{
-			UsedPercent: raw.RateLimit.SecondaryWindow.UsedPercent,
-			ResetsAt:    raw.RateLimit.SecondaryWindow.ResetAt,
-		})
+	if secondary != nil {
+		snap.Session = primary
+		snap.Weekly = secondary
+	} else if looksLikeWeeklyOnlyPrimary(primary, snap.SourceTimestamp) {
+		snap.Weekly = primary
+		snap.SessionUnsupported = true
+	} else {
+		snap.Session = primary
 	}
 	return snap, nil
+}
+
+func toWindowFromAPI(raw *codexAPIWindow) *Window {
+	if raw == nil {
+		return nil
+	}
+	return toWindow(&rawWindow{
+		UsedPercent: raw.UsedPercent,
+		ResetsAt:    raw.ResetAt,
+	})
+}
+
+func looksLikeWeeklyOnlyPrimary(primary *Window, now time.Time) bool {
+	if primary == nil || primary.ResetAt.IsZero() {
+		return false
+	}
+	return primary.ResetAt.After(now.Add(24 * time.Hour))
+}
+
+func secondaryLooksPlaceholder(secondary *Window) bool {
+	if secondary == nil {
+		return false
+	}
+	return secondary.UsedPercent == 0 && secondary.ResetAt.IsZero()
 }

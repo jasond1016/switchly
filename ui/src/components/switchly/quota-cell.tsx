@@ -6,9 +6,22 @@ type QuotaCellProps = {
   window: QuotaWindow;
   nowMs: number;
   limitReached: boolean;
+  supported?: boolean;
 };
 
-export function QuotaCell({ label, window, nowMs, limitReached }: QuotaCellProps) {
+export function QuotaCell({ label, window, nowMs, limitReached, supported = true }: QuotaCellProps) {
+  if (!supported) {
+    return (
+      <div className="min-w-[160px]">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+        </div>
+        <div className="text-xs font-mono text-muted-foreground">N/A</div>
+        <div className="mt-0.5 text-[10px] text-muted-foreground">免费账号无该额度窗口</div>
+      </div>
+    );
+  }
+
   const used = clampPercent(window.used_percent);
   const remaining = remainingPercent(used);
   const resetHint = fmtResetHint(window.reset_at, nowMs);

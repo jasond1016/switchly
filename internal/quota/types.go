@@ -11,10 +11,11 @@ type Window struct {
 }
 
 type Snapshot struct {
-	Session         *Window
-	Weekly          *Window
-	SourceTimestamp time.Time
-	LimitReached    bool
+	Session            *Window
+	Weekly             *Window
+	SessionUnsupported bool
+	SourceTimestamp    time.Time
+	LimitReached       bool
 }
 
 type rawWindow struct {

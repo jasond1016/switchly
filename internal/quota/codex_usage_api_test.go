@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,5 +69,89 @@ func TestFetchCodexSnapshotHTTPError(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "status 401") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFetchCodexSnapshotPrimaryOnlyLooksLikeWeekly(t *testing.T) {
+	now := time.Now().UTC().Add(7 * 24 * time.Hour).Unix()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			body := `{"rate_limit":{"limit_reached":false,"primary_window":{"used_percent":2.1,"reset_at":` + strconv.FormatInt(now, 10) + `}}}`
+			return &http.Response{
+				StatusCode: 200,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		}),
+	}
+
+	snap, err := FetchCodexSnapshot(context.Background(), client, "token-a", "")
+	if err != nil {
+		t.Fatalf("fetch snapshot: %v", err)
+	}
+	if snap.Session != nil {
+		t.Fatalf("expected session=nil for weekly-only primary, got %#v", snap.Session)
+	}
+	if snap.Weekly == nil || snap.Weekly.UsedPercent != 2 {
+		t.Fatalf("expected weekly from primary, got %#v", snap.Weekly)
+	}
+	if !snap.SessionUnsupported {
+		t.Fatalf("expected session_unsupported=true")
+	}
+}
+
+func TestFetchCodexSnapshotPrimaryOnlyShortHorizonKeepsSession(t *testing.T) {
+	now := time.Now().UTC().Add(2 * time.Hour).Unix()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			body := `{"rate_limit":{"limit_reached":false,"primary_window":{"used_percent":2.1,"reset_at":` + strconv.FormatInt(now, 10) + `}}}`
+			return &http.Response{
+				StatusCode: 200,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		}),
+	}
+
+	snap, err := FetchCodexSnapshot(context.Background(), client, "token-a", "")
+	if err != nil {
+		t.Fatalf("fetch snapshot: %v", err)
+	}
+	if snap.Session == nil || snap.Session.UsedPercent != 2 {
+		t.Fatalf("expected session from primary, got %#v", snap.Session)
+	}
+	if snap.Weekly != nil {
+		t.Fatalf("expected weekly=nil, got %#v", snap.Weekly)
+	}
+	if snap.SessionUnsupported {
+		t.Fatalf("expected session_unsupported=false")
+	}
+}
+
+func TestFetchCodexSnapshotIgnoresPlaceholderSecondaryForWeeklyOnly(t *testing.T) {
+	primaryReset := time.Now().UTC().Add(7 * 24 * time.Hour).Unix()
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			body := `{"rate_limit":{"limit_reached":false,"primary_window":{"used_percent":0.1,"reset_at":` + strconv.FormatInt(primaryReset, 10) + `},"secondary_window":{"used_percent":0,"reset_at":0}}}`
+			return &http.Response{
+				StatusCode: 200,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		}),
+	}
+
+	snap, err := FetchCodexSnapshot(context.Background(), client, "token-a", "")
+	if err != nil {
+		t.Fatalf("fetch snapshot: %v", err)
+	}
+	if snap.Session != nil {
+		t.Fatalf("expected session=nil for weekly-only primary+placeholder secondary, got %#v", snap.Session)
+	}
+	if snap.Weekly == nil || snap.Weekly.UsedPercent != 0 {
+		t.Fatalf("expected weekly from primary, got %#v", snap.Weekly)
+	}
+	if !snap.SessionUnsupported {
+		t.Fatalf("expected session_unsupported=true")
 	}
 }

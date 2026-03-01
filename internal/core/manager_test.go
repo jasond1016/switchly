@@ -122,10 +122,11 @@ func TestMergeQuotaSnapshot(t *testing.T) {
 				Session: &quota.Window{UsedPercent: 100},
 			},
 			want: model.QuotaSnapshot{
-				Session:      model.QuotaWindow{UsedPercent: 100},
-				Weekly:       model.QuotaWindow{UsedPercent: 40},
-				LimitReached: true,
-				LastUpdated:  now,
+				Session:          model.QuotaWindow{UsedPercent: 100},
+				Weekly:           model.QuotaWindow{UsedPercent: 40},
+				SessionSupported: boolPtr(true),
+				LimitReached:     true,
+				LastUpdated:      now,
 			},
 		},
 		{
@@ -145,19 +146,51 @@ func TestMergeQuotaSnapshot(t *testing.T) {
 				LastUpdated:  now,
 			},
 		},
+		{
+			name: "marks session unsupported when snapshot has weekly only",
+			current: model.QuotaSnapshot{
+				Session: model.QuotaWindow{UsedPercent: 88, ResetAt: now.Add(2 * time.Hour)},
+				Weekly:  model.QuotaWindow{UsedPercent: 12},
+			},
+			snap: quota.Snapshot{
+				Weekly:             &quota.Window{UsedPercent: 34, ResetAt: now.Add(7 * 24 * time.Hour)},
+				SessionUnsupported: true,
+			},
+			want: model.QuotaSnapshot{
+				Session:          model.QuotaWindow{},
+				Weekly:           model.QuotaWindow{UsedPercent: 34, ResetAt: now.Add(7 * 24 * time.Hour)},
+				SessionSupported: boolPtr(false),
+				LimitReached:     false,
+				LastUpdated:      now,
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := mergeQuotaSnapshot(tt.current, tt.snap, now)
 			if got.Session.UsedPercent != tt.want.Session.UsedPercent ||
+				!got.Session.ResetAt.Equal(tt.want.Session.ResetAt) ||
 				got.Weekly.UsedPercent != tt.want.Weekly.UsedPercent ||
+				!got.Weekly.ResetAt.Equal(tt.want.Weekly.ResetAt) ||
+				!equalBoolPtr(got.SessionSupported, tt.want.SessionSupported) ||
 				got.LimitReached != tt.want.LimitReached ||
 				!got.LastUpdated.Equal(now) {
 				t.Fatalf("mergeQuotaSnapshot()=%#v want %#v", got, tt.want)
 			}
 		})
 	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func equalBoolPtr(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func TestOrderedCandidatesFillFirst(t *testing.T) {

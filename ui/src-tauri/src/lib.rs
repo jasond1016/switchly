@@ -5,10 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, Runtime, WindowEvent};
 use tauri::Emitter;
-use tauri_plugin_autostart::ManagerExt;
+use tauri::{AppHandle, Manager, Runtime, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_autostart::ManagerExt;
 
 const TRAY_ID: &str = "switchly-tray";
 const MENU_OPEN_DASHBOARD: &str = "open_dashboard";
@@ -74,6 +74,7 @@ struct AccountSnapshot {
 struct QuotaSnapshot {
     session: QuotaWindow,
     weekly: QuotaWindow,
+    session_supported: Option<bool>,
     limit_reached: bool,
 }
 
@@ -133,7 +134,8 @@ fn run_switchly(args: &[&str]) -> Result<String, String> {
 
 fn run_switchly_json<T: for<'de> Deserialize<'de>>(args: &[&str]) -> Result<T, String> {
     let raw = run_switchly(args)?;
-    serde_json::from_str::<T>(&raw).map_err(|e| format!("failed to parse command JSON output: {e}; output: {raw}"))
+    serde_json::from_str::<T>(&raw)
+        .map_err(|e| format!("failed to parse command JSON output: {e}; output: {raw}"))
 }
 
 fn pull_tray_snapshot() -> TraySnapshot {
@@ -160,11 +162,20 @@ fn remaining_pct(used_percent: f64) -> u8 {
 }
 
 fn account_menu_label(account: &AccountSnapshot) -> String {
-    let limit = if account.quota.limit_reached { " !" } else { "" };
+    let limit = if account.quota.limit_reached {
+        " !"
+    } else {
+        ""
+    };
+    let session_label = if account.quota.session_supported == Some(false) {
+        "N/A".to_string()
+    } else {
+        format!("{}%", remaining_pct(account.quota.session.used_percent))
+    };
     format!(
-        "{} | S:{}% W:{}%{}",
+        "{} | S:{} W:{}%{}",
         account.id,
-        remaining_pct(account.quota.session.used_percent),
+        session_label,
         remaining_pct(account.quota.weekly.used_percent),
         limit
     )
@@ -191,8 +202,16 @@ fn refresh_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 
     let mut builder = MenuBuilder::new(app);
     builder = builder
-        .item(&MenuItemBuilder::with_id(MENU_OPEN_DASHBOARD, "Open Dashboard").build(app).map_err(|e| e.to_string())?)
-        .item(&MenuItemBuilder::with_id(MENU_REFRESH, "Refresh Now").build(app).map_err(|e| e.to_string())?)
+        .item(
+            &MenuItemBuilder::with_id(MENU_OPEN_DASHBOARD, "Open Dashboard")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        )
+        .item(
+            &MenuItemBuilder::with_id(MENU_REFRESH, "Refresh Now")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        )
         .separator()
         .item(
             &MenuItemBuilder::new(if daemon_running(&snapshot) {
@@ -204,9 +223,21 @@ fn refresh_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             .build(app)
             .map_err(|e| e.to_string())?,
         )
-        .item(&MenuItemBuilder::with_id(MENU_DAEMON_START, "Start Daemon").build(app).map_err(|e| e.to_string())?)
-        .item(&MenuItemBuilder::with_id(MENU_DAEMON_STOP, "Stop Daemon").build(app).map_err(|e| e.to_string())?)
-        .item(&MenuItemBuilder::with_id(MENU_DAEMON_RESTART, "Restart Daemon").build(app).map_err(|e| e.to_string())?)
+        .item(
+            &MenuItemBuilder::with_id(MENU_DAEMON_START, "Start Daemon")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        )
+        .item(
+            &MenuItemBuilder::with_id(MENU_DAEMON_STOP, "Stop Daemon")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        )
+        .item(
+            &MenuItemBuilder::with_id(MENU_DAEMON_RESTART, "Restart Daemon")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        )
         .separator();
 
     let strategy = snapshot.status.as_ref().map(|s| &s.strategy);
@@ -291,7 +322,11 @@ fn refresh_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                 .build(app)
                 .map_err(|e| e.to_string())?,
         )
-        .item(&MenuItemBuilder::with_id(MENU_QUIT, "Quit").build(app).map_err(|e| e.to_string())?);
+        .item(
+            &MenuItemBuilder::with_id(MENU_QUIT, "Quit")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        );
 
     let menu = builder.build().map_err(|e| e.to_string())?;
     let tray = app
@@ -533,6 +568,7 @@ mod tests {
             quota: QuotaSnapshot {
                 session: QuotaWindow { used_percent: 22.1 },
                 weekly: QuotaWindow { used_percent: 80.7 },
+                session_supported: Some(true),
                 limit_reached: true,
             },
         };
@@ -542,9 +578,26 @@ mod tests {
     }
 
     #[test]
+    fn account_menu_label_uses_na_for_unsupported_session_window() {
+        let account = AccountSnapshot {
+            id: "acc-free".to_string(),
+            quota: QuotaSnapshot {
+                session: QuotaWindow { used_percent: 0.0 },
+                weekly: QuotaWindow { used_percent: 1.0 },
+                session_supported: Some(false),
+                limit_reached: false,
+            },
+        };
+
+        let label = account_menu_label(&account);
+        assert_eq!(label, "acc-free | S:N/A W:99%");
+    }
+
+    #[test]
     fn routing_strategy_deserializes_from_api_format() {
         let raw = r#"{"active_account_id":"acc-1","strategy":"fill-first","accounts":[]}"#;
-        let snapshot: StatusSnapshot = serde_json::from_str(raw).expect("status json should deserialize");
+        let snapshot: StatusSnapshot =
+            serde_json::from_str(raw).expect("status json should deserialize");
         assert_eq!(snapshot.strategy, RoutingStrategy::FillFirst);
     }
 
@@ -561,7 +614,9 @@ mod tests {
     fn tray_event_requires_dashboard_refresh_matches_expected_ids() {
         assert!(tray_event_requires_dashboard_refresh(MENU_REFRESH));
         assert!(tray_event_requires_dashboard_refresh(MENU_DAEMON_START));
-        assert!(tray_event_requires_dashboard_refresh(MENU_STRATEGY_ROUND_ROBIN));
+        assert!(tray_event_requires_dashboard_refresh(
+            MENU_STRATEGY_ROUND_ROBIN
+        ));
         assert!(tray_event_requires_dashboard_refresh(MENU_TOGGLE_AUTOSTART));
         assert!(tray_event_requires_dashboard_refresh("account:acc-a"));
 

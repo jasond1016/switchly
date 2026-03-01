@@ -16,4 +16,19 @@ describe("QuotaCell", () => {
     const resetHintNode = screen.getByText("2天后");
     expect(resetHintNode.getAttribute("title")).toBe("重置时间 2099-01-03 00:00:00 UTC");
   });
+
+  it("renders N/A when window is not supported", () => {
+    render(
+      <QuotaCell
+        label="Session"
+        window={{ used_percent: 0 }}
+        nowMs={new Date("2099-01-01T00:00:00Z").getTime()}
+        limitReached={false}
+        supported={false}
+      />,
+    );
+
+    expect(screen.getByText("N/A")).toBeTruthy();
+    expect(screen.getByText("免费账号无该额度窗口")).toBeTruthy();
+  });
 });

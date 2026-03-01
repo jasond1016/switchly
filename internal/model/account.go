@@ -23,10 +23,11 @@ type QuotaWindow struct {
 }
 
 type QuotaSnapshot struct {
-	Session      QuotaWindow `json:"session"`
-	Weekly       QuotaWindow `json:"weekly"`
-	LimitReached bool        `json:"limit_reached"`
-	LastUpdated  time.Time   `json:"last_updated"`
+	Session          QuotaWindow `json:"session"`
+	Weekly           QuotaWindow `json:"weekly"`
+	SessionSupported *bool       `json:"session_supported,omitempty"`
+	LimitReached     bool        `json:"limit_reached"`
+	LastUpdated      time.Time   `json:"last_updated"`
 }
 
 type Account struct {

@@ -13,6 +13,7 @@ export type QuotaWindow = {
 export type QuotaSnapshot = {
   session: QuotaWindow;
   weekly: QuotaWindow;
+  session_supported?: boolean;
   limit_reached: boolean;
   last_updated?: string;
 };

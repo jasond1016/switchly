@@ -396,15 +396,25 @@ func buildAccountRecord(in AddAccountInput, createdAt, now time.Time) model.Acco
 
 func mergeQuotaSnapshot(current model.QuotaSnapshot, snap quota.Snapshot, now time.Time) model.QuotaSnapshot {
 	next := current
-	if snap.Session != nil {
+	if snap.SessionUnsupported {
+		next.Session = model.QuotaWindow{}
+		supported := false
+		next.SessionSupported = &supported
+	} else if snap.Session != nil {
 		next.Session.UsedPercent = snap.Session.UsedPercent
 		next.Session.ResetAt = snap.Session.ResetAt
+		supported := true
+		next.SessionSupported = &supported
 	}
 	if snap.Weekly != nil {
 		next.Weekly.UsedPercent = snap.Weekly.UsedPercent
 		next.Weekly.ResetAt = snap.Weekly.ResetAt
 	}
-	next.LimitReached = snap.LimitReached || next.Session.UsedPercent >= 100 || next.Weekly.UsedPercent >= 100
+	sessionLimitReached := next.Session.UsedPercent >= 100
+	if next.SessionSupported != nil && !*next.SessionSupported {
+		sessionLimitReached = false
+	}
+	next.LimitReached = snap.LimitReached || sessionLimitReached || next.Weekly.UsedPercent >= 100
 	next.LastUpdated = now
 	return next
 }
