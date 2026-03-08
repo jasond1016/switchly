@@ -48,29 +48,32 @@ export function AccountsTable({ accounts, activeAccountID, nowMs, onUseAccount, 
   const summary = statusSummary(accounts, activeAccountID);
 
   return (
-    <section className="surface-panel mb-4 overflow-hidden rounded-2xl">
+    <section className="surface-panel mb-4 overflow-hidden rounded-2xl" aria-labelledby="accounts-section-title">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/80 px-4 py-3.5">
         <div>
           <p className="section-title mb-1">Accounts</p>
-          <h2 className="text-sm font-semibold text-foreground">已接入账号与额度状态</h2>
+          <h2 id="accounts-section-title" className="text-sm font-semibold text-foreground">
+            已接入账号与额度状态
+          </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="chip">{accounts.length} accounts</span>
-          <span className="chip">{summary.active} active</span>
+          <span className="chip">{accounts.length} 个账号</span>
+          <span className="chip">{summary.active} 个活跃</span>
           <span className={`chip ${summary.needsAttention > 0 ? "border-warning/30 text-[oklch(0.42_0.11_82)]" : ""}`}>
-            {summary.needsAttention} need attention
+            {summary.needsAttention} 个需关注
           </span>
         </div>
       </div>
       {accounts.length > 0 ? (
-        <div className="accounts-deck p-3 sm:p-4">
+        <ul className="accounts-deck p-3 sm:p-4" role="list">
           {accounts.map((acc, index) => {
             const active = acc.id === activeAccountID;
             const badge = statusPill(acc.status, active);
             const bandClass = accountBandClass(acc.status, active);
+            const headingId = `account-card-${acc.id}`;
 
             return (
-              <article
+              <li
                 key={acc.id}
                 className={`account-card group relative overflow-hidden rounded-[1.5rem] border border-border/80 bg-card px-4 py-4 transition-transform duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-1 ${
                   active ? "ring-1 ring-primary/20" : ""
@@ -78,12 +81,14 @@ export function AccountsTable({ accounts, activeAccountID, nowMs, onUseAccount, 
                 style={{ "--i": index } as CSSProperties}
               >
                 <div className={`account-band bg-gradient-to-b ${bandClass}`} aria-hidden="true" />
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_auto] xl:items-start">
+                <article aria-labelledby={headingId} className="account-card-content grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_auto] xl:items-start">
                   <div className="min-w-0 pr-2">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="section-title mb-1">Account</p>
-                        <h3 className="truncate font-mono text-lg font-semibold tracking-[-0.03em] text-foreground">{acc.id}</h3>
+                        <h3 id={headingId} className="truncate font-mono text-lg font-semibold tracking-[-0.03em] text-foreground">
+                          {acc.id}
+                        </h3>
                         <p className="mt-1 truncate text-sm text-muted-foreground">{acc.email || acc.provider}</p>
                       </div>
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.04em] ${badge.className}`}>
@@ -91,16 +96,16 @@ export function AccountsTable({ accounts, activeAccountID, nowMs, onUseAccount, 
                       </span>
                     </div>
 
-                    <div className="mt-4 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+                    <dl className="mt-4 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
                       <div className="rounded-2xl bg-secondary/35 px-3 py-2">
-                        <div className="metric-kicker">访问过期</div>
-                        <div className="mt-1 font-mono text-xs text-foreground">{fmtTime(acc.access_expires_at)}</div>
+                        <dt className="metric-kicker">访问过期</dt>
+                        <dd className="mt-1 font-mono text-xs text-foreground">{fmtTime(acc.access_expires_at)}</dd>
                       </div>
                       <div className="rounded-2xl bg-secondary/35 px-3 py-2">
-                        <div className="metric-kicker">上次刷新</div>
-                        <div className="mt-1 font-mono text-xs text-foreground">{fmtTime(acc.last_refresh_at)}</div>
+                        <dt className="metric-kicker">上次刷新</dt>
+                        <dd className="mt-1 font-mono text-xs text-foreground">{fmtTime(acc.last_refresh_at)}</dd>
                       </div>
-                    </div>
+                    </dl>
 
                     {acc.last_error ? (
                       <div className="mt-3 rounded-2xl border border-destructive/20 bg-destructive/6 px-3 py-2 text-[11px] text-destructive">
@@ -117,7 +122,7 @@ export function AccountsTable({ accounts, activeAccountID, nowMs, onUseAccount, 
                       limitReached={acc.quota.limit_reached}
                       supported={acc.quota.session_supported !== false}
                     />
-                    <div>
+                    <div aria-label="Weekly quota">
                       <QuotaCell label="Weekly" window={acc.quota.weekly} nowMs={nowMs} limitReached={acc.quota.limit_reached} />
                       <div className="mt-2 px-1 text-[10px] font-mono text-muted-foreground">更新于 {fmtTime(acc.quota.last_updated)}</div>
                     </div>
@@ -145,11 +150,11 @@ export function AccountsTable({ accounts, activeAccountID, nowMs, onUseAccount, 
                       </button>
                     ) : null}
                   </div>
-                </div>
-              </article>
+                </article>
+              </li>
             );
           })}
-        </div>
+        </ul>
       ) : (
         <div className="px-4 py-10 text-center">
           <div className="mx-auto max-w-sm">

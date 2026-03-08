@@ -46,7 +46,7 @@ function quotaTone(remaining: number): {
 export function QuotaCell({ label, window, nowMs, limitReached, supported = true }: QuotaCellProps) {
   if (!supported) {
     return (
-      <div className="min-w-[220px] rounded-[1.25rem] border border-border/70 bg-secondary/30 p-3">
+      <div className="min-w-[220px] rounded-[1.25rem] border border-border/70 bg-secondary/30 p-3" role="group" aria-label={`${label} quota`}>
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
           <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Unavailable</span>
@@ -70,7 +70,7 @@ export function QuotaCell({ label, window, nowMs, limitReached, supported = true
   const gaugeBackground = `conic-gradient(${tone.ringColor} 0deg ${remaining * 3.6}deg, color-mix(in oklab, ${tone.ringColor} 16%, white) ${remaining * 3.6}deg 360deg)`;
 
   return (
-    <div className="min-w-[220px] rounded-[1.25rem] border border-border/70 bg-secondary/26 p-3 transition-transform duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5">
+    <div className="min-w-[220px] rounded-[1.25rem] border border-border/70 bg-secondary/26 p-3 transition-transform duration-200 ease-[cubic-bezier(0.25,1,0.5,1)] hover:-translate-y-0.5" role="group" aria-label={`${label} quota`}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
         <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${tone.badgeClass}`}>
@@ -80,7 +80,7 @@ export function QuotaCell({ label, window, nowMs, limitReached, supported = true
       </div>
       <div className="grid gap-3 sm:grid-cols-[88px_minmax(0,1fr)] sm:items-center">
         <div className="flex justify-center sm:justify-start">
-          <div className="quota-gauge" style={{ backgroundImage: gaugeBackground }}>
+          <div className="quota-gauge" style={{ backgroundImage: gaugeBackground }} aria-hidden="true">
             <div className="quota-gauge-inner">
               <div className={`text-2xl font-semibold tracking-[-0.04em] ${tone.textClass}`}>{remaining}</div>
               <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">remain</div>
