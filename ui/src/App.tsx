@@ -121,6 +121,9 @@ function App() {
 
   const daemonRunning = daemonInfo !== null;
   const oauthUIStatus = oauthStatus(oauthSession);
+  const accounts = status?.accounts ?? [];
+  const attentionCount = accounts.filter((acc) => acc.status === "need_reauth" || acc.status === "disabled" || acc.quota.limit_reached).length;
+  const readyCount = accounts.filter((acc) => acc.status === "ready" || acc.id === status?.active_account_id).length;
   const daemonLogs = daemonOutput
     ? daemonOutput
         .split(/\r?\n/)
@@ -156,15 +159,11 @@ function App() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-[minmax(18rem,22rem)_auto] sm:items-end">
-              <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                <span className="section-title">Base URL</span>
-                <input
-                  className="field-shell h-10 rounded-xl px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring/35"
-                  value={baseURL}
-                  onChange={(e) => setBaseURL(e.currentTarget.value)}
-                />
-              </label>
+            <div className="flex flex-col items-stretch gap-3 xl:min-w-[280px] xl:items-end">
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                <span className="chip">{accounts.length} accounts loaded</span>
+                <span className={`chip ${attentionCount > 0 ? "border-warning/30 text-[oklch(0.42_0.11_82)]" : ""}`}>{attentionCount} alerts</span>
+              </div>
               <button
                 onClick={() => void refreshAll()}
                 disabled={loading}
@@ -175,12 +174,32 @@ function App() {
               </button>
             </div>
           </div>
+
+          <details className="mt-4 rounded-2xl border border-border/80 bg-card/70 p-3">
+            <summary className="cursor-pointer list-none text-sm font-medium text-foreground">
+              高级连接设置
+              <span className="ml-2 text-xs font-normal text-muted-foreground">当前 {baseURL}</span>
+            </summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(18rem,22rem)_auto] sm:items-end">
+              <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                <span className="section-title">Base URL</span>
+                <input
+                  className="field-shell h-10 rounded-xl px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring/35"
+                  value={baseURL}
+                  onChange={(e) => setBaseURL(e.currentTarget.value)}
+                />
+              </label>
+              <p className="text-xs leading-5 text-muted-foreground">只有切换本地 daemon 地址或调试其他环境时才需要修改这里。</p>
+            </div>
+          </details>
         </header>
 
         <SummaryRow
           activeAccountId={status?.active_account_id ?? "-"}
           strategy={status?.strategy}
-          accountCount={status?.accounts.length ?? 0}
+          accountCount={accounts.length}
+          readyCount={readyCount}
+          attentionCount={attentionCount}
           daemonRunning={daemonRunning}
         />
 
@@ -232,7 +251,7 @@ function App() {
         ) : null}
 
         <AccountsTable
-          accounts={status?.accounts ?? []}
+          accounts={accounts}
           activeAccountID={status?.active_account_id}
           nowMs={nowMs}
           onUseAccount={(id) => void onUseAccount(id)}
