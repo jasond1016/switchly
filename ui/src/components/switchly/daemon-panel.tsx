@@ -13,8 +13,9 @@ type DaemonPanelProps = {
 
 export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, daemonInfo, daemonLogs, onDaemonCommand }: DaemonPanelProps) {
   return (
-    <div className="rounded-lg border border-border bg-card lg:col-span-2">
-      <div className="border-b border-border px-4 py-3">
+    <div className="surface-panel rounded-2xl lg:col-span-2">
+      <div className="border-b border-border/80 px-4 py-3.5">
+        <p className="section-title mb-1">Daemon</p>
         <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Server className="size-4 text-primary" />
           Daemon 控制
@@ -22,7 +23,7 @@ export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, da
       </div>
       <div className="flex flex-col gap-3 p-4">
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between rounded-md bg-secondary/50 px-3 py-2">
+          <div className="flex items-center justify-between rounded-xl bg-secondary/50 px-3 py-2.5">
             <span className="text-xs text-muted-foreground">Addr</span>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-xs text-foreground">{addr}</span>
@@ -32,7 +33,7 @@ export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, da
             </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-md bg-secondary/50 px-3 py-2">
+          <div className="flex items-center justify-between rounded-xl bg-secondary/50 px-3 py-2.5">
             <span className="text-xs text-muted-foreground">Callback</span>
             <div className="flex items-center gap-1.5">
               <span className="max-w-[320px] truncate font-mono text-xs text-foreground">{publicBaseURL}</span>
@@ -45,7 +46,7 @@ export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, da
 
         <div className="flex gap-2">
           <button
-            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             disabled={daemonBusy !== ""}
             onClick={() => onDaemonCommand("start")}
           >
@@ -54,7 +55,7 @@ export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, da
           </button>
 
           <button
-            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             disabled={daemonBusy !== ""}
             onClick={() => onDaemonCommand("stop")}
           >
@@ -63,7 +64,7 @@ export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, da
           </button>
 
           <button
-            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             disabled={daemonBusy !== ""}
             onClick={() => onDaemonCommand("restart")}
           >
@@ -72,7 +73,7 @@ export function DaemonPanel({ addr, publicBaseURL, daemonBusy, daemonRunning, da
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-md border border-border bg-secondary/60">
+        <div className="overflow-hidden rounded-xl border border-border bg-secondary/60">
           <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
             <Terminal className="size-3 text-muted-foreground" />
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Output</span>

@@ -130,34 +130,50 @@ function App() {
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="mx-auto max-w-[1400px] px-6 py-6">
-        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-lg border border-border bg-card">
-              <img src="/switchly-logo.png" alt="Switchly logo" className="size-5 object-contain" />
+      <div className="dashboard-shell mx-auto max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6">
+        <header className="hero-panel surface-panel mb-6 rounded-[1.75rem] px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="chip">
+                  <span className={`status-dot ${daemonRunning ? "bg-success" : "bg-warning"}`} />
+                  {daemonRunning ? "Daemon Online" : "Daemon Offline"}
+                </span>
+                <span className="chip">Windows-first local router</span>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="flex size-13 shrink-0 items-center justify-center rounded-2xl border border-border/80 bg-card/90 shadow-sm">
+                  <img src="/switchly-logo.png" alt="Switchly logo" className="size-7 object-contain" />
+                </div>
+                <div className="max-w-3xl">
+                  <p className="section-title mb-2">Local account routing dashboard</p>
+                  <h1 className="text-2xl font-semibold tracking-[-0.04em] text-foreground sm:text-4xl">Switchly</h1>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-[15px]">
+                    为 Codex 多账号切换、限额同步和本地 daemon 控制提供统一桌面入口。当前界面更适合高频管理，而不是一次性设置。
+                  </p>
+                </div>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight text-foreground">Switchly</h1>
-              <p className="text-xs text-muted-foreground">Codex 多账号切换器</p>
+
+            <div className="grid gap-3 sm:grid-cols-[minmax(18rem,22rem)_auto] sm:items-end">
+              <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                <span className="section-title">Base URL</span>
+                <input
+                  className="field-shell h-10 rounded-xl px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring/35"
+                  value={baseURL}
+                  onChange={(e) => setBaseURL(e.currentTarget.value)}
+                />
+              </label>
+              <button
+                onClick={() => void refreshAll()}
+                disabled={loading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                {loading ? "Refreshing..." : "Refresh"}
+              </button>
             </div>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-              Base URL
-              <input
-                className="h-8 w-[270px] rounded-md border border-input bg-card px-2.5 text-xs text-foreground shadow-sm outline-none focus:ring-2 focus:ring-ring/40"
-                value={baseURL}
-                onChange={(e) => setBaseURL(e.currentTarget.value)}
-              />
-            </label>
-            <button
-              onClick={() => void refreshAll()}
-              disabled={loading}
-              className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-secondary px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-              {loading ? "Refreshing..." : "Refresh"}
-            </button>
           </div>
         </header>
 
@@ -184,11 +200,12 @@ function App() {
         />
 
         {codexImportCandidate?.found && codexImportCandidate.candidate ? (
-          <section className="mb-4 rounded-lg border border-success/30 bg-success/5 p-3">
+          <section className="surface-panel mb-4 rounded-2xl border border-success/30 bg-success/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
+                <p className="section-title mb-1">Codex Import</p>
                 <p className="text-sm font-medium text-foreground">检测到本地 Codex 登录，可导入 Switchly 账号列表</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   账号 ID: {codexImportCandidate.candidate.id}
                   {codexImportCandidate.already_exists ? "（已存在，导入会覆盖 token）" : ""}
                 </p>
@@ -197,7 +214,7 @@ function App() {
                 <button
                   onClick={() => void onImportLocalCodexAccount()}
                   disabled={codexImportBusy}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-9 items-center gap-1 rounded-xl border border-primary/20 bg-primary px-3.5 text-xs font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {codexImportBusy ? <Loader2 className="size-3.5 animate-spin" /> : null}
                   导入
@@ -205,7 +222,7 @@ function App() {
                 <button
                   onClick={onDismissLocalCodexImport}
                   disabled={codexImportBusy}
-                  className="inline-flex h-8 items-center rounded-md border border-border bg-secondary px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-9 items-center rounded-xl border border-border bg-secondary px-3.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   暂不导入
                 </button>

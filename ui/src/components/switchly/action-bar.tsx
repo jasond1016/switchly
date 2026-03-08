@@ -31,81 +31,84 @@ export function ActionBar({
   onSimulateLimit,
 }: ActionBarProps) {
   return (
-    <section className="mb-4 rounded-lg border border-border bg-card p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1 rounded-md border border-border bg-secondary p-0.5">
-          <button
-            onClick={() => onStrategyChange("round-robin")}
-            className={`rounded-sm px-3 py-1.5 text-xs font-medium transition-colors ${
-              strategy === "round-robin" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Round-Robin
-          </button>
-          <button
-            onClick={() => onStrategyChange("fill-first")}
-            className={`rounded-sm px-3 py-1.5 text-xs font-medium transition-colors ${
-              strategy === "fill-first" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Fill-First
-          </button>
-        </div>
+    <section className="surface-panel mb-4 rounded-2xl p-4">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="section-title">Routing Strategy</span>
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-secondary p-1">
+              <button
+                onClick={() => onStrategyChange("round-robin")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  strategy === "round-robin" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Round-Robin
+              </button>
+              <button
+                onClick={() => onStrategyChange("fill-first")}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  strategy === "fill-first" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Fill-First
+              </button>
+            </div>
+          </div>
 
-        <div className="h-6 w-px bg-border" />
+          <div className="hidden h-10 w-px bg-border xl:block" />
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">自动刷新</span>
-          <div className="relative">
-            <select
-              className="h-8 appearance-none rounded-md border border-input bg-secondary px-2.5 pr-7 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-              value={quotaRefreshCadence}
-              onChange={(e) => onQuotaRefreshCadenceChange(e.currentTarget.value as RefreshCadence)}
-            >
-              {REFRESH_CADENCE_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 text-muted-foreground" />
+          <div className="flex flex-col gap-1">
+            <span className="section-title">Auto Refresh</span>
+            <div className="relative">
+              <select
+                className="field-shell h-10 appearance-none rounded-xl px-3.5 pr-9 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/35"
+                value={quotaRefreshCadence}
+                onChange={(e) => onQuotaRefreshCadenceChange(e.currentTarget.value as RefreshCadence)}
+              >
+                {REFRESH_CADENCE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            </div>
           </div>
         </div>
 
-        <div className="h-6 w-px bg-border" />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={onSyncQuota}
+            disabled={quotaSyncBusy || quotaSyncAllBusy}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 text-xs font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {quotaSyncBusy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            Sync Quota (OpenAI API)
+          </button>
 
-        <button
-          onClick={onSyncQuota}
-          disabled={quotaSyncBusy || quotaSyncAllBusy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {quotaSyncBusy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          Sync Quota (OpenAI API)
-        </button>
+          <button
+            onClick={onSyncQuotaAll}
+            disabled={quotaSyncBusy || quotaSyncAllBusy}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 text-xs font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {quotaSyncAllBusy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCcw className="size-3.5" />}
+            Sync All Quotas
+          </button>
 
-        <button
-          onClick={onSyncQuotaAll}
-          disabled={quotaSyncBusy || quotaSyncAllBusy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {quotaSyncAllBusy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCcw className="size-3.5" />}
-          Sync All Quotas
-        </button>
-
-        <div className="h-6 w-px bg-border" />
-
-        <button
-          onClick={onSimulateLimit}
-          disabled={simBusy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/30 bg-card px-3 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {simBusy ? <Loader2 className="size-3.5 animate-spin" /> : <AlertTriangle className="size-3.5" />}
-          Simulate Limit Error
-        </button>
+          <button
+            onClick={onSimulateLimit}
+            disabled={simBusy}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {simBusy ? <Loader2 className="size-3.5 animate-spin" /> : <AlertTriangle className="size-3.5" />}
+            Simulate Limit Error
+          </button>
+        </div>
       </div>
 
-      {syncNotice ? <div className={`mt-3 rounded-md border px-3 py-2 text-xs font-mono ${toneClass(syncNotice.tone)}`}>{syncNotice.message}</div> : null}
-      {error ? <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}</div> : null}
+      {syncNotice ? <div className={`mt-3 rounded-xl border px-3 py-2.5 text-xs font-mono ${toneClass(syncNotice.tone)}`}>{syncNotice.message}</div> : null}
+      {error ? <div className="mt-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">{error}</div> : null}
     </section>
   );
 }

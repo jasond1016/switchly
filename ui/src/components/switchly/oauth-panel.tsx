@@ -10,8 +10,9 @@ type OAuthPanelProps = {
 
 export function OAuthPanel({ oauthPolling, oauthUIStatus, oauthSession, onOAuthLogin }: OAuthPanelProps) {
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <div className="border-b border-border px-4 py-3">
+    <div className="surface-panel rounded-2xl">
+      <div className="border-b border-border/80 px-4 py-3.5">
+        <p className="section-title mb-1">OAuth</p>
         <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Globe className="size-4 text-primary" />
           OAuth 授权
@@ -21,14 +22,14 @@ export function OAuthPanel({ oauthPolling, oauthUIStatus, oauthSession, onOAuthL
         <button
           onClick={onOAuthLogin}
           disabled={oauthPolling}
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {oauthPolling ? <Loader2 className="size-4 animate-spin" /> : <Globe className="size-4" />}
           通过浏览器登录
         </button>
 
         <div
-          className={`flex items-center gap-2 rounded-md border p-3 ${
+          className={`flex items-center gap-2 rounded-xl border p-3 ${
             oauthUIStatus === "success"
               ? "border-success/30 bg-success/5"
               : oauthUIStatus === "error"
@@ -49,12 +50,12 @@ export function OAuthPanel({ oauthPolling, oauthUIStatus, oauthSession, onOAuthL
           )}
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-foreground">Callback 状态</p>
-            <p className="text-xs text-muted-foreground">{oauthText(oauthUIStatus)}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{oauthText(oauthUIStatus)}</p>
           </div>
         </div>
 
         {oauthSession ? (
-          <pre className="max-h-[220px] overflow-auto rounded-md border border-border bg-secondary/60 p-3 font-mono text-[11px] text-muted-foreground">
+          <pre className="max-h-[220px] overflow-auto rounded-xl border border-border bg-secondary/60 p-3 font-mono text-[11px] text-muted-foreground">
             {JSON.stringify(oauthSession, null, 2)}
           </pre>
         ) : null}

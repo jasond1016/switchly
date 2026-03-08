@@ -12,7 +12,7 @@ type QuotaCellProps = {
 export function QuotaCell({ label, window, nowMs, limitReached, supported = true }: QuotaCellProps) {
   if (!supported) {
     return (
-      <div className="min-w-[160px]">
+      <div className="min-w-[160px] rounded-xl bg-secondary/35 p-2.5">
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
         </div>
@@ -31,7 +31,7 @@ export function QuotaCell({ label, window, nowMs, limitReached, supported = true
   const toneBar = tone === "success" ? "bg-success" : tone === "warning" ? "bg-warning" : "bg-destructive";
 
   return (
-    <div className="min-w-[160px]">
+    <div className="min-w-[160px] rounded-xl bg-secondary/35 p-2.5">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
         {limitReached ? <AlertTriangle className="size-3 text-destructive" /> : null}
