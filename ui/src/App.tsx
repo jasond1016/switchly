@@ -142,7 +142,7 @@ function App() {
                   <span className={`status-dot ${daemonRunning ? "bg-success" : "bg-warning"}`} />
                   {daemonRunning ? "Daemon Online" : "Daemon Offline"}
                 </span>
-                <span className="chip">Windows-first local router</span>
+                <span className="chip">Cross-platform local router</span>
               </div>
 
               <div className="flex items-start gap-4">

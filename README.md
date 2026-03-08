@@ -1,4 +1,4 @@
-# switchly (Windows-first MVP)
+# switchly
 
 Switchly is a local account switcher for AI subscriptions.
 
@@ -6,9 +6,9 @@ Current MVP scope:
 - Multi-account storage (Codex-first)
 - Manual active account switch
 - Automatic switch decision on quota/rate-limit errors
-- Windows DPAPI-encrypted local secret storage
+- Cross-platform desktop UI and tray/menu bar control
+- Windows DPAPI-encrypted local secret storage, file-backed secret storage on macOS/Linux
 - CLI + daemon architecture
-- Desktop tray/menu bar control (Windows tray, macOS menu bar, Linux appindicator/tray)
 
 ## Binaries
 
@@ -18,7 +18,7 @@ Current MVP scope:
 
 ## Quick start
 
-```powershell
+```bash
 # 1) start daemon
 go run ./cmd/switchlyd --addr 127.0.0.1:7777 --public-base-url http://localhost:7777
 
@@ -67,7 +67,35 @@ switchly daemon restart
 
 ## Desktop UI (Tauri)
 
-```powershell
+### Prerequisites
+
+- All platforms:
+  - Rust toolchain
+  - Node.js + `pnpm`
+- Linux (Debian/Ubuntu/Mint):
+
+```bash
+sudo apt update
+sudo apt install libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+- macOS:
+  - Xcode Command Line Tools
+- Windows:
+  - Microsoft Visual Studio C++ Build Tools
+  - WebView2 Runtime
+
+### Run
+
+```bash
 cd ui
 pnpm install
 pnpm tauri dev
@@ -91,8 +119,13 @@ pnpm tauri dev
 
 ## Data locations
 
-- State file: `%APPDATA%\\Switchly\\accounts.json`
-- Secrets (Windows): `%APPDATA%\\Switchly\\secrets\\*.bin` (DPAPI encrypted)
+- Config dir:
+  - Windows: `%APPDATA%\\Switchly`
+  - macOS: `~/Library/Application Support/Switchly`
+  - Linux: `${XDG_CONFIG_HOME:-~/.config}/Switchly`
+- State file: `<config-dir>/accounts.json`
+- Secrets on Windows: `<config-dir>/secrets/*.bin` (DPAPI encrypted)
+- Secrets on macOS/Linux: `<config-dir>/secrets/*.json` (permission-restricted local files)
 
 ## Notes
 
@@ -103,4 +136,5 @@ pnpm tauri dev
 - `account apply` can be used to force re-apply the active account (or a specific account with `--id`).
 - `account import-codex` imports the currently logged-in Codex CLI account from `~/.codex/auth.json`.
 - Daemon API includes `/v1/daemon/info`, `/v1/daemon/shutdown`, `/v1/daemon/restart`.
+- `switchly daemon stop` and `switchly daemon restart` use the daemon API first on every platform; the local process-kill fallback is currently Windows-only.
 - For `go run`, daemon API restart may be unavailable unless `switchlyd` is started with `--restart-cmd`.
