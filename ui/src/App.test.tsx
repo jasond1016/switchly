@@ -27,6 +27,8 @@ describe("App", () => {
   });
 
   it("renders dashboard data without legacy summary cards", async () => {
+    const invokeMock = vi.mocked(invoke);
+
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
 
@@ -83,6 +85,9 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /Sync All Quotas/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "追加账号" })).toBeTruthy();
     expect(screen.queryByText("OAuth 授权")).toBeNull();
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("refresh_tray");
+    });
   });
 
   it("shows status request errors", async () => {

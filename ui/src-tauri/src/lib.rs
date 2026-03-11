@@ -16,8 +16,6 @@ const MENU_REFRESH: &str = "refresh";
 const MENU_DAEMON_START: &str = "daemon_start";
 const MENU_DAEMON_STOP: &str = "daemon_stop";
 const MENU_DAEMON_RESTART: &str = "daemon_restart";
-const MENU_STRATEGY_FILL_FIRST: &str = "strategy_fill_first";
-const MENU_STRATEGY_ROUND_ROBIN: &str = "strategy_round_robin";
 const MENU_TOGGLE_AUTOSTART: &str = "toggle_autostart";
 const MENU_QUIT: &str = "quit";
 const MENU_ACCOUNT_PREFIX: &str = "account:";
@@ -52,6 +50,12 @@ fn daemon_restart(addr: String, public_base_url: String) -> Result<String, Strin
     ])
 }
 
+#[tauri::command]
+fn refresh_tray<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    refresh_tray_menu(&app)?;
+    Ok("ok".to_string())
+}
+
 #[derive(Default)]
 struct AppLifecycleState {
     quitting: AtomicBool,
@@ -60,7 +64,6 @@ struct AppLifecycleState {
 #[derive(Debug, Clone, Deserialize)]
 struct StatusSnapshot {
     active_account_id: Option<String>,
-    strategy: RoutingStrategy,
     accounts: Vec<AccountSnapshot>,
 }
 
@@ -81,22 +84,6 @@ struct QuotaSnapshot {
 #[derive(Debug, Clone, Deserialize)]
 struct QuotaWindow {
     used_percent: f64,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-enum RoutingStrategy {
-    RoundRobin,
-    FillFirst,
-}
-
-impl RoutingStrategy {
-    fn as_cli_value(&self) -> &'static str {
-        match self {
-            Self::RoundRobin => "round-robin",
-            Self::FillFirst => "fill-first",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -181,13 +168,6 @@ fn account_menu_label(account: &AccountSnapshot) -> String {
     )
 }
 
-fn strategy_menu_label(strategy: Option<&RoutingStrategy>) -> String {
-    match strategy {
-        Some(value) => format!("Current mode: {}", value.as_cli_value()),
-        None => "Current mode: unknown".to_string(),
-    }
-}
-
 fn autostart_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
 }
@@ -240,33 +220,12 @@ fn refresh_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         )
         .separator();
 
-    let strategy = snapshot.status.as_ref().map(|s| &s.strategy);
-    builder = builder
-        .item(
-            &MenuItemBuilder::new(strategy_menu_label(strategy))
-                .enabled(false)
-                .build(app)
-                .map_err(|e| e.to_string())?,
-        )
-        .item(
-            &CheckMenuItemBuilder::with_id(MENU_STRATEGY_FILL_FIRST, "Fill First")
-                .checked(strategy == Some(&RoutingStrategy::FillFirst))
-                .build(app)
-                .map_err(|e| e.to_string())?,
-        )
-        .item(
-            &CheckMenuItemBuilder::with_id(MENU_STRATEGY_ROUND_ROBIN, "Round Robin")
-                .checked(strategy == Some(&RoutingStrategy::RoundRobin))
-                .build(app)
-                .map_err(|e| e.to_string())?,
-        )
-        .separator()
-        .item(
-            &MenuItemBuilder::new("Accounts (session + weekly remaining)")
-                .enabled(false)
-                .build(app)
-                .map_err(|e| e.to_string())?,
-        );
+    builder = builder.item(
+        &MenuItemBuilder::new("Accounts (session + weekly remaining)")
+            .enabled(false)
+            .build(app)
+            .map_err(|e| e.to_string())?,
+    );
 
     if let Some(status) = &snapshot.status {
         if status.accounts.is_empty() {
@@ -360,8 +319,6 @@ fn tray_event_requires_dashboard_refresh(event_id: &str) -> bool {
             | MENU_DAEMON_START
             | MENU_DAEMON_STOP
             | MENU_DAEMON_RESTART
-            | MENU_STRATEGY_FILL_FIRST
-            | MENU_STRATEGY_ROUND_ROBIN
             | MENU_TOGGLE_AUTOSTART
     ) || event_id.starts_with(MENU_ACCOUNT_PREFIX)
 }
@@ -385,10 +342,6 @@ fn handle_tray_menu_event<R: Runtime>(app: &AppHandle<R>, event_id: &str) {
         run_switchly(&["daemon", "stop"])
     } else if event_id == MENU_DAEMON_RESTART {
         run_switchly(&["daemon", "restart"])
-    } else if event_id == MENU_STRATEGY_FILL_FIRST {
-        run_switchly(&["strategy", "set", "--value", "fill-first"])
-    } else if event_id == MENU_STRATEGY_ROUND_ROBIN {
-        run_switchly(&["strategy", "set", "--value", "round-robin"])
     } else if event_id == MENU_TOGGLE_AUTOSTART {
         toggle_autostart(app).map(|_| "ok".to_string())
     } else if event_id == MENU_QUIT {
@@ -533,7 +486,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             daemon_start,
             daemon_stop,
-            daemon_restart
+            daemon_restart,
+            refresh_tray
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -594,14 +548,6 @@ mod tests {
     }
 
     #[test]
-    fn routing_strategy_deserializes_from_api_format() {
-        let raw = r#"{"active_account_id":"acc-1","strategy":"fill-first","accounts":[]}"#;
-        let snapshot: StatusSnapshot =
-            serde_json::from_str(raw).expect("status json should deserialize");
-        assert_eq!(snapshot.strategy, RoutingStrategy::FillFirst);
-    }
-
-    #[test]
     fn shorten_error_limits_length() {
         let short = shorten_error("daemon down");
         assert_eq!(short, "daemon down");
@@ -614,9 +560,6 @@ mod tests {
     fn tray_event_requires_dashboard_refresh_matches_expected_ids() {
         assert!(tray_event_requires_dashboard_refresh(MENU_REFRESH));
         assert!(tray_event_requires_dashboard_refresh(MENU_DAEMON_START));
-        assert!(tray_event_requires_dashboard_refresh(
-            MENU_STRATEGY_ROUND_ROBIN
-        ));
         assert!(tray_event_requires_dashboard_refresh(MENU_TOGGLE_AUTOSTART));
         assert!(tray_event_requires_dashboard_refresh("account:acc-a"));
 

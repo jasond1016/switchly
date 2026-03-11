@@ -1,4 +1,5 @@
 import { Loader2, Play, RotateCcw, Square } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AccountsTable } from "./components/switchly/accounts-table";
@@ -61,6 +62,11 @@ function App() {
   const refreshAll = useCallback(async () => {
     await refreshAllBase();
     await discoverCodexImportCandidate();
+    try {
+      await invoke("refresh_tray");
+    } catch {
+      // Ignore tray refresh failures in non-Tauri environments.
+    }
   }, [discoverCodexImportCandidate, refreshAllBase]);
 
   const autoStartAttemptedRef = useRef("");
