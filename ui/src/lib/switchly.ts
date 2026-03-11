@@ -42,6 +42,11 @@ export type QuotaSyncAllResponse = {
   total: number;
   succeeded: number;
   failed: number;
+  results?: Array<{
+    account_id: string;
+    success: boolean;
+    error?: string;
+  }>;
 };
 
 export type OAuthSession = {

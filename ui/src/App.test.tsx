@@ -319,6 +319,62 @@ describe("App", () => {
     await screen.findByText("HTTP 500: activate failed");
   });
 
+  it("shows active accounts that also need reauth", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/v1/status")) {
+        return new Response(
+          JSON.stringify({
+            active_account_id: "acc-main",
+            strategy: "fill-first",
+            accounts: [
+              {
+                id: "acc-main",
+                provider: "codex",
+                status: "need_reauth",
+                last_error: "token refresh failed: status 401",
+                quota: {
+                  session: { used_percent: 12, reset_at: "2099-01-02T00:00:00Z" },
+                  weekly: { used_percent: 20, reset_at: "2099-01-07T00:00:00Z" },
+                  limit_reached: false,
+                  last_updated: "2099-01-01T00:00:00Z",
+                },
+                created_at: "2099-01-01T00:00:00Z",
+                updated_at: "2099-01-01T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/daemon/info")) {
+        return new Response(
+          JSON.stringify({
+            pid: 321,
+            addr: "127.0.0.1:7777",
+            public_base_url: "http://localhost:7777",
+            restart_supported: true,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.endsWith("/v1/accounts/import/codex/candidate")) {
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    render(<App />);
+
+    await screen.findByText("需重登");
+    expect(screen.getByText("当前使用中")).toBeTruthy();
+    expect(screen.getByText("最近一次同步失败，账号凭据可能已失效，请重新授权。")).toBeTruthy();
+  });
+
   it("hides codex candidate after dismiss and keeps it dismissed on tray refresh", async () => {
     let trayHandler: (() => void) | undefined;
     listenMock.mockImplementation(async (_event: string, handler: () => void) => {

@@ -35,6 +35,10 @@ export function useQuotaSync({ apiRequest, loadStatus, activeAccountID, onError,
     quotaSyncBackoffUntilRef.current = Date.now() + backoffMinutes * 60_000;
   }, []);
 
+  const failedAccountIDs = useCallback((out: QuotaSyncAllResponse): string[] => {
+    return (out.results ?? []).filter((item) => item.success === false).map((item) => item.account_id).filter((id) => id.trim().length > 0);
+  }, []);
+
   const runQuotaSync = useCallback(
     async (opts?: { accountID?: string; silent?: boolean; showBusy?: boolean }) => {
       const accountID = (opts?.accountID ?? activeAccountID ?? "").trim();
@@ -101,7 +105,7 @@ export function useQuotaSync({ apiRequest, loadStatus, activeAccountID, onError,
 
         if (!opts?.silent) {
           if (out.failed > 0) {
-            onNotice({ tone: "warning", message: MESSAGES.quota.syncAllPartial(out.succeeded, out.failed) });
+            onNotice({ tone: "warning", message: MESSAGES.quota.syncAllPartial(out.succeeded, out.failed, failedAccountIDs(out)) });
           } else {
             onNotice({ tone: "success", message: MESSAGES.quota.syncAllSuccess(out.succeeded) });
           }
@@ -122,7 +126,7 @@ export function useQuotaSync({ apiRequest, loadStatus, activeAccountID, onError,
         }
       }
     },
-    [apiRequest, applyQuotaSyncBackoff, loadStatus, onError, onNotice, resetQuotaSyncBackoff, setQuotaSyncAllBusy],
+    [apiRequest, applyQuotaSyncBackoff, failedAccountIDs, loadStatus, onError, onNotice, resetQuotaSyncBackoff, setQuotaSyncAllBusy],
   );
 
   useEffect(() => {

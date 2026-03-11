@@ -4,7 +4,16 @@ export const MESSAGES = {
     syncAccountSuccess: (accountID: string) => `✓ 账号 ${accountID} Quota 同步成功`,
     syncAccountFailed: (message: string) => `Quota 同步失败: ${message}`,
     syncingAll: "正在同步所有账号 Quota...",
-    syncAllPartial: (succeeded: number, failed: number) => `⚠ 同步完成: ${succeeded} 个成功, ${failed} 个失败`,
+    syncAllPartial: (succeeded: number, failed: number, failedAccountIDs?: string[]) => {
+      const failedAccounts = (failedAccountIDs ?? []).filter((id) => id.trim().length > 0);
+      if (failedAccounts.length === 0) {
+        return `⚠ 同步完成: ${succeeded} 个成功, ${failed} 个失败`;
+      }
+      if (failedAccounts.length <= 2) {
+        return `⚠ 同步完成: ${succeeded} 个成功, ${failed} 个失败（${failedAccounts.join("、")}）`;
+      }
+      return `⚠ 同步完成: ${succeeded} 个成功, ${failed} 个失败（${failedAccounts.slice(0, 2).join("、")} 等 ${failedAccounts.length} 个账号）`;
+    },
     syncAllSuccess: (succeeded: number) => `✓ 全部 ${succeeded} 个账号 Quota 同步成功`,
     syncAllFailed: (message: string) => `Sync All 失败: ${message}`,
   },

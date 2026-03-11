@@ -22,17 +22,23 @@ type AccountsTableProps = {
   onOAuthReauth: () => void;
 };
 
-function statusPill(status: string, isActive: boolean): { className: string; label: string } {
-  if (isActive) {
-    return { className: "bg-success/15 text-success border-success/20", label: "活跃" };
-  }
+type StatusBadge = {
+  className: string;
+  label: string;
+};
+
+function buildStatusBadges(status: string): StatusBadge[] {
+  const badges: StatusBadge[] = [];
+
   if (status === "need_reauth") {
-    return { className: "bg-destructive/15 text-destructive border-destructive/20", label: "需重登" };
+    badges.push({ className: "bg-destructive/15 text-destructive border-destructive/20", label: "需重登" });
+  } else if (status === "disabled") {
+    badges.push({ className: "bg-muted text-muted-foreground border-border", label: "禁用" });
+  } else {
+    badges.push({ className: "bg-secondary text-muted-foreground border-border", label: "就绪" });
   }
-  if (status === "disabled") {
-    return { className: "bg-muted text-muted-foreground border-border", label: "禁用" };
-  }
-  return { className: "bg-secondary text-muted-foreground border-border", label: "就绪" };
+
+  return badges;
 }
 
 export function AccountsTable({
@@ -175,7 +181,7 @@ export function AccountsTable({
             <tbody>
           {accounts.map((acc) => {
             const active = acc.id === activeAccountID;
-            const badge = statusPill(acc.status, active);
+            const badges = buildStatusBadges(acc.status);
             const headingId = `account-card-${acc.id}`;
             const errorTooltipId = `account-error-${acc.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
             const accountMetaTitle = [
@@ -202,16 +208,19 @@ export function AccountsTable({
                 </td>
                 <td className="border-b border-border/70 px-4 py-3 align-top">
                   <div className="space-y-2">
-                    <div className="group/tooltip relative inline-flex">
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.04em] ${
-                          acc.last_error ? `${badge.className} cursor-help` : badge.className
-                        }`}
-                        tabIndex={acc.last_error ? 0 : undefined}
-                        aria-describedby={acc.last_error ? errorTooltipId : undefined}
-                      >
-                        {badge.label}
-                      </span>
+                    <div className="group/tooltip relative flex flex-wrap gap-2">
+                      {badges.map((badge, index) => (
+                        <span
+                          key={`${acc.id}-${badge.label}`}
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.04em] ${
+                            acc.last_error && index === 0 ? `${badge.className} cursor-help` : badge.className
+                          }`}
+                          tabIndex={acc.last_error && index === 0 ? 0 : undefined}
+                          aria-describedby={acc.last_error && index === 0 ? errorTooltipId : undefined}
+                        >
+                          {badge.label}
+                        </span>
+                      ))}
                       {acc.last_error ? (
                         <div
                           id={errorTooltipId}
@@ -222,6 +231,12 @@ export function AccountsTable({
                         </div>
                       ) : null}
                     </div>
+                    {acc.status === "need_reauth" ? (
+                      <p className="text-[11px] font-medium text-destructive">最近一次同步失败，账号凭据可能已失效，请重新授权。</p>
+                    ) : null}
+                    {acc.status === "disabled" ? (
+                      <p className="text-[11px] font-medium text-muted-foreground">该账号当前已禁用，不会被自动切换选中。</p>
+                    ) : null}
                   </div>
                 </td>
                 <td className="border-b border-border/70 px-4 py-3 align-top">
