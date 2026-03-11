@@ -10,6 +10,7 @@ import (
 
 	"switchly/internal/core"
 	"switchly/internal/model"
+	"switchly/internal/oauth"
 )
 
 func TestCORSMiddlewarePreflight(t *testing.T) {
@@ -116,6 +117,26 @@ func TestHandleAccountDetailDelete(t *testing.T) {
 	}
 	if _, ok := state.state.Accounts["acc-a"]; ok {
 		t.Fatal("expected deleted account removed from state")
+	}
+}
+
+func TestHandleOAuthCancel(t *testing.T) {
+	oauthService := oauth.NewService(nil, "http://localhost:7777")
+	session, err := oauthService.Start("codex")
+	if err != nil {
+		t.Fatalf("start oauth: %v", err)
+	}
+	server := New(nil, oauthService, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/oauth/cancel", bytes.NewBufferString(`{"state":"`+session.State+`"}`))
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if _, err := oauthService.Status(session.State); err == nil {
+		t.Fatal("expected cancelled session to be removed")
 	}
 }
 

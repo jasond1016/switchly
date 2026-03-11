@@ -39,6 +39,13 @@ type ProviderConfig struct {
 	AdditionalAuthParams map[string]string
 }
 
+type CallbackLeaseManager interface {
+	Acquire(redirectURI string, handler http.Handler) error
+	Release(redirectURI string)
+}
+
+type ServiceOption func(*Service)
+
 type SessionSnapshot struct {
 	State     string        `json:"state"`
 	Provider  string        `json:"provider"`
@@ -52,6 +59,7 @@ type SessionSnapshot struct {
 type session struct {
 	SessionSnapshot
 	codeVerifier string
+	redirectURI  string
 }
 
 type Service struct {
@@ -61,20 +69,33 @@ type Service struct {
 	baseURL    string
 	providers  map[string]ProviderConfig
 	sessions   map[string]*session
+	callbacks  CallbackLeaseManager
 }
 
-func NewService(manager *core.Manager, baseURL string) *Service {
+func NewService(manager *core.Manager, baseURL string, opts ...ServiceOption) *Service {
 	providers := map[string]ProviderConfig{}
 	for _, p := range defaultProviders() {
 		providers[p.Provider] = p
 	}
 
-	return &Service{
+	svc := &Service{
 		manager:    manager,
 		httpClient: &http.Client{Timeout: 20 * time.Second},
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		providers:  providers,
 		sessions:   map[string]*session{},
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	return svc
+}
+
+func WithCallbackLeaseManager(manager CallbackLeaseManager) ServiceOption {
+	return func(s *Service) {
+		s.callbacks = manager
 	}
 }
 
@@ -143,6 +164,11 @@ func (s *Service) Start(provider string) (SessionSnapshot, error) {
 	if redirectURI == "" {
 		redirectURI = s.baseURL + "/auth/callback"
 	}
+	if s.callbacks != nil {
+		if err := s.callbacks.Acquire(redirectURI, http.HandlerFunc(s.HandleCallback)); err != nil {
+			return SessionSnapshot{}, fmt.Errorf("reserve oauth callback listener: %w", err)
+		}
+	}
 	q := url.Values{}
 	q.Set("response_type", "code")
 	q.Set("client_id", cfg.ClientID)
@@ -163,7 +189,8 @@ func (s *Service) Start(provider string) (SessionSnapshot, error) {
 		AuthURL:   authURL,
 		ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
 	}
-	s.sessions[state] = &session{SessionSnapshot: snap, codeVerifier: verifier}
+	s.sessions[state] = &session{SessionSnapshot: snap, codeVerifier: verifier, redirectURI: redirectURI}
+	go s.expireSession(state, snap.ExpiresAt)
 	return snap, nil
 }
 
@@ -178,8 +205,22 @@ func (s *Service) Status(state string) (SessionSnapshot, error) {
 	if sess.Status == SessionPending && time.Now().UTC().After(sess.ExpiresAt) {
 		sess.Status = SessionExpired
 		sess.Error = "oauth session expired"
+		s.releaseCallbackLocked(sess)
 	}
 	return sess.SessionSnapshot, nil
+}
+
+func (s *Service) Cancel(state string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, ok := s.sessions[state]
+	if !ok {
+		return errors.New("state not found")
+	}
+	s.releaseCallbackLocked(sess)
+	delete(s.sessions, state)
+	return nil
 }
 
 func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
@@ -278,6 +319,7 @@ func (s *Service) failSession(state, msg string) {
 	if sess, ok := s.sessions[state]; ok {
 		sess.Status = SessionError
 		sess.Error = msg
+		s.releaseCallbackLocked(sess)
 	}
 }
 
@@ -288,7 +330,36 @@ func (s *Service) completeSession(state, accountID string) {
 		sess.Status = SessionSuccess
 		sess.AccountID = accountID
 		sess.Error = ""
+		s.releaseCallbackLocked(sess)
 	}
+}
+
+func (s *Service) releaseCallbackLocked(sess *session) {
+	if sess == nil || s.callbacks == nil {
+		return
+	}
+	redirectURI := strings.TrimSpace(sess.redirectURI)
+	if redirectURI == "" {
+		return
+	}
+	sess.redirectURI = ""
+	s.callbacks.Release(redirectURI)
+}
+
+func (s *Service) expireSession(state string, expiresAt time.Time) {
+	timer := time.NewTimer(time.Until(expiresAt))
+	defer timer.Stop()
+	<-timer.C
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[state]
+	if !ok || sess.Status != SessionPending {
+		return
+	}
+	sess.Status = SessionExpired
+	sess.Error = "oauth session expired"
+	s.releaseCallbackLocked(sess)
 }
 
 type tokenResponse struct {

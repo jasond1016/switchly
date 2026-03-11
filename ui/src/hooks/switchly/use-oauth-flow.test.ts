@@ -209,6 +209,9 @@ describe("useOAuthFlow", () => {
           expires_at: "2099-01-01T00:00:00Z",
         };
       }
+      if (path === "/v1/oauth/cancel") {
+        return { status: "cancelled" };
+      }
       throw new Error(`unexpected path: ${path}`);
     });
 
@@ -241,6 +244,7 @@ describe("useOAuthFlow", () => {
     });
 
     expect(statusCallCount(apiRequest)).toBe(1);
+    expect(apiRequest).toHaveBeenCalledWith("/v1/oauth/cancel", expect.objectContaining({ method: "POST" }));
     expect(onError).toHaveBeenCalledWith("");
   });
 });

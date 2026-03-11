@@ -5,12 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +29,7 @@ type daemonController struct {
 	publicBaseURL     string
 	defaultRestartCmd string
 	httpServers       []*http.Server
+	oauthCallbacks    *oauthCallbackLeases
 	shuttingDown      bool
 }
 
@@ -78,9 +79,13 @@ func (d *daemonController) Shutdown() error {
 	}
 	d.shuttingDown = true
 	servers := append([]*http.Server(nil), d.httpServers...)
+	callbacks := d.oauthCallbacks
 	d.mu.Unlock()
 
 	go func() {
+		if callbacks != nil {
+			callbacks.CloseAll()
+		}
 		time.Sleep(150 * time.Millisecond)
 		for _, srv := range servers {
 			if srv == nil {
@@ -131,18 +136,16 @@ func main() {
 	secretStore := secrets.NewDefaultStore()
 	authApplier := codexauth.NewDefaultFileApplier()
 	manager := core.NewManager(stateStore, secretStore, core.WithActiveAccountApplier(authApplier))
-	oauthService := oauth.NewService(manager, *publicBaseURL)
+	oauthLeases := newOAuthCallbackLeases(*addr, *publicBaseURL)
+	oauthService := oauth.NewService(manager, *publicBaseURL, oauth.WithCallbackLeaseManager(oauthLeases))
 
 	httpServer := &http.Server{
 		Addr:              *addr,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	callbackServers, err := buildOAuthCallbackServers(oauthService)
-	if err != nil {
-		log.Fatalf("init oauth callback listeners: %v", err)
-	}
 
-	daemonCtl := newDaemonController(*addr, *publicBaseURL, *restartCmd, append([]*http.Server{httpServer}, callbackServers...)...)
+	daemonCtl := newDaemonController(*addr, *publicBaseURL, *restartCmd, httpServer)
+	daemonCtl.oauthCallbacks = oauthLeases
 	api := server.New(manager, oauthService, daemonCtl)
 	httpServer.Handler = api.Handler()
 
@@ -151,65 +154,157 @@ func main() {
 	if daemonCtl.defaultRestartCmd == "" {
 		fmt.Println("daemon restart API: disabled (set --restart-cmd when running via go run)")
 	}
-	for _, srv := range callbackServers {
-		srv := srv
-		go func() {
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Printf("oauth callback server error on %s: %v", srv.Addr, err)
-			}
-		}()
-	}
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }
 
-func buildOAuthCallbackServers(oauthService *oauth.Service) ([]*http.Server, error) {
-	if oauthService == nil {
-		return nil, nil
+type oauthCallbackLeases struct {
+	mu        sync.Mutex
+	listeners map[string]*oauthCallbackLease
+	skipHosts map[string]struct{}
+}
+
+type oauthCallbackLease struct {
+	server   *http.Server
+	listener net.Listener
+	path     string
+	refCount int
+}
+
+func newOAuthCallbackLeases(hostsToSkip ...string) *oauthCallbackLeases {
+	skipHosts := map[string]struct{}{}
+	for _, raw := range hostsToSkip {
+		host := normalizeHost(raw)
+		if host != "" {
+			skipHosts[host] = struct{}{}
+		}
 	}
-	uris := oauthService.RedirectURIs()
-	bindings := map[string]map[string]struct{}{}
-	for _, raw := range uris {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return nil, fmt.Errorf("invalid oauth redirect uri %q: %w", raw, err)
-		}
-		host := u.Host
-		if host == "" {
-			return nil, fmt.Errorf("oauth redirect uri missing host: %q", raw)
-		}
-		p := u.EscapedPath()
-		if p == "" {
-			p = "/"
-		}
-		if _, ok := bindings[host]; !ok {
-			bindings[host] = map[string]struct{}{}
-		}
-		bindings[host][p] = struct{}{}
+	return &oauthCallbackLeases{
+		listeners: map[string]*oauthCallbackLease{},
+		skipHosts: skipHosts,
+	}
+}
+
+func (m *oauthCallbackLeases) Acquire(redirectURI string, handler http.Handler) error {
+	host, path, err := parseRedirectBinding(redirectURI)
+	if err != nil {
+		return err
+	}
+	if _, skip := m.skipHosts[host]; skip {
+		return nil
 	}
 
-	hosts := make([]string, 0, len(bindings))
-	for h := range bindings {
-		hosts = append(hosts, h)
-	}
-	sort.Strings(hosts)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	servers := make([]*http.Server, 0, len(hosts))
-	for _, host := range hosts {
-		paths := bindings[host]
-		mux := http.NewServeMux()
-		for p := range paths {
-			mux.HandleFunc(p, oauthService.HandleCallback)
+	if lease, ok := m.listeners[host]; ok {
+		if lease.path != path {
+			return fmt.Errorf("oauth callback listener for %s already reserved on %s", host, lease.path)
 		}
-		// Backward-compatible route.
-		mux.HandleFunc("/v1/oauth/callback", oauthService.HandleCallback)
-
-		servers = append(servers, &http.Server{
-			Addr:              host,
-			Handler:           mux,
-			ReadHeaderTimeout: 5 * time.Second,
-		})
+		lease.refCount++
+		return nil
 	}
-	return servers, nil
+
+	listener, err := net.Listen("tcp", host)
+	if err != nil {
+		return fmt.Errorf("oauth callback port %s is already in use", host)
+	}
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	server := &http.Server{
+		Addr:              host,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	m.listeners[host] = &oauthCallbackLease{
+		server:   server,
+		listener: listener,
+		path:     path,
+		refCount: 1,
+	}
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Printf("oauth callback server error on %s: %v", host, err)
+		}
+	}()
+	return nil
+}
+
+func (m *oauthCallbackLeases) Release(redirectURI string) {
+	host, _, err := parseRedirectBinding(redirectURI)
+	if err != nil {
+		return
+	}
+	if _, skip := m.skipHosts[host]; skip {
+		return
+	}
+
+	var server *http.Server
+	m.mu.Lock()
+	lease, ok := m.listeners[host]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	lease.refCount--
+	if lease.refCount > 0 {
+		m.mu.Unlock()
+		return
+	}
+	server = lease.server
+	delete(m.listeners, host)
+	m.mu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	}()
+}
+
+func (m *oauthCallbackLeases) CloseAll() {
+	m.mu.Lock()
+	servers := make([]*http.Server, 0, len(m.listeners))
+	for host, lease := range m.listeners {
+		servers = append(servers, lease.server)
+		delete(m.listeners, host)
+	}
+	m.mu.Unlock()
+
+	for _, server := range servers {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = server.Shutdown(ctx)
+		cancel()
+	}
+}
+
+func normalizeHost(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Contains(trimmed, "://") {
+		u, err := url.Parse(trimmed)
+		if err == nil {
+			return u.Host
+		}
+	}
+	return trimmed
+}
+
+func parseRedirectBinding(raw string) (string, string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", "", fmt.Errorf("invalid oauth redirect uri %q: %w", raw, err)
+	}
+	host := strings.TrimSpace(u.Host)
+	if host == "" {
+		return "", "", fmt.Errorf("oauth redirect uri missing host: %q", raw)
+	}
+	path := u.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return host, path, nil
 }

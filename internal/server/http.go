@@ -41,6 +41,7 @@ func (s *APIServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/oauth/providers", s.handleOAuthProviders)
 	mux.HandleFunc("/v1/oauth/start", s.handleOAuthStart)
 	mux.HandleFunc("/v1/oauth/status", s.handleOAuthStatus)
+	mux.HandleFunc("/v1/oauth/cancel", s.handleOAuthCancel)
 	mux.HandleFunc("/v1/oauth/callback", s.handleOAuthCallback)
 	mux.HandleFunc("/auth/callback", s.handleOAuthCallback)
 	mux.HandleFunc("/v1/daemon/info", s.handleDaemonInfo)
@@ -429,6 +430,33 @@ func (s *APIServer) handleOAuthStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snap)
+}
+
+func (s *APIServer) handleOAuthCancel(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	if s.oauth == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("oauth service not configured"))
+		return
+	}
+
+	var req struct {
+		State string `json:"state"`
+	}
+	if err := decodeJSONBody(r, &req, false); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.State) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing state"))
+		return
+	}
+	if err := s.oauth.Cancel(req.State); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
 	"switchly/internal/core"
 )
@@ -81,3 +83,76 @@ func TestClassifyAddAccountError(t *testing.T) {
 		})
 	}
 }
+
+func TestStartAcquiresAndCancelReleasesCallbackLease(t *testing.T) {
+	manager := &fakeCallbackLeaseManager{}
+	svc := NewService(nil, "http://localhost:7777", WithCallbackLeaseManager(manager))
+
+	snap, err := svc.Start("codex")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if len(manager.acquired) != 1 {
+		t.Fatalf("expected one acquire, got %d", len(manager.acquired))
+	}
+	if err := svc.Cancel(snap.State); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if len(manager.released) != 1 || manager.released[0] != "http://localhost:1455/auth/callback" {
+		t.Fatalf("unexpected releases: %#v", manager.released)
+	}
+}
+
+func TestStartReleasesCallbackLeaseOnExpire(t *testing.T) {
+	manager := &fakeCallbackLeaseManager{}
+	svc := NewService(nil, "http://localhost:7777", WithCallbackLeaseManager(manager))
+
+	svc.mu.Lock()
+	svc.sessions["expired"] = &session{
+		SessionSnapshot: SessionSnapshot{
+			State:     "expired",
+			Provider:  "codex",
+			Status:    SessionPending,
+			ExpiresAt: time.Now().UTC().Add(-time.Second),
+		},
+		redirectURI: "http://localhost:1455/auth/callback",
+	}
+	svc.mu.Unlock()
+
+	if _, err := svc.Status("expired"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if len(manager.released) != 1 || manager.released[0] != "http://localhost:1455/auth/callback" {
+		t.Fatalf("unexpected releases: %#v", manager.released)
+	}
+}
+
+func TestStartReturnsAcquireError(t *testing.T) {
+	manager := &fakeCallbackLeaseManager{acquireErr: errors.New("port busy")}
+	svc := NewService(nil, "http://localhost:7777", WithCallbackLeaseManager(manager))
+
+	_, err := svc.Start("codex")
+	if err == nil || err.Error() != "reserve oauth callback listener: port busy" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type fakeCallbackLeaseManager struct {
+	acquired   []string
+	released   []string
+	acquireErr error
+}
+
+func (f *fakeCallbackLeaseManager) Acquire(redirectURI string, _ http.Handler) error {
+	if f.acquireErr != nil {
+		return f.acquireErr
+	}
+	f.acquired = append(f.acquired, redirectURI)
+	return nil
+}
+
+func (f *fakeCallbackLeaseManager) Release(redirectURI string) {
+	f.released = append(f.released, redirectURI)
+}
+
+var _ CallbackLeaseManager = (*fakeCallbackLeaseManager)(nil)

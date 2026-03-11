@@ -19,11 +19,18 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
   const { isMountedRef, cancel: cancelPoll, schedule: schedulePoll } = useMountedTimeout();
 
   const cancelOAuth = useCallback(() => {
+    const state = oauthSession?.state;
     cancelPoll();
     setOAuthPolling(false);
     setOAuthSession(null);
     onError("");
-  }, [cancelPoll, onError]);
+    if (state) {
+      void apiRequest("/v1/oauth/cancel", {
+        method: "POST",
+        body: JSON.stringify({ state }),
+      }).catch(() => {});
+    }
+  }, [apiRequest, cancelPoll, oauthSession?.state, onError]);
 
   const startOAuthPolling = useCallback(
     (state: string) => {
