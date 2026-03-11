@@ -190,6 +190,59 @@ describe("useOAuthFlow", () => {
 
     expect(statusCallCount(apiRequest)).toBe(1);
   });
+
+  it("cancels pending oauth polling and clears session", async () => {
+    const apiRequest = vi.fn(async (path: string) => {
+      if (path === "/v1/oauth/start") {
+        return {
+          state: "state-cancel",
+          provider: "codex",
+          status: "pending",
+          expires_at: "2099-01-01T00:00:00Z",
+        };
+      }
+      if (path.startsWith("/v1/oauth/status")) {
+        return {
+          state: "state-cancel",
+          provider: "codex",
+          status: "pending",
+          expires_at: "2099-01-01T00:00:00Z",
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      useOAuthFlow({
+        apiRequest: apiRequest as ApiRequest,
+        refreshAll: vi.fn(async () => {}),
+        runQuotaSync: vi.fn(async () => true),
+        onError,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.loginWithBrowser();
+    });
+
+    expect(result.current.oauthPolling).toBe(true);
+    expect(result.current.oauthSession?.status).toBe("pending");
+
+    act(() => {
+      result.current.cancelOAuth();
+    });
+
+    expect(result.current.oauthPolling).toBe(false);
+    expect(result.current.oauthSession).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+
+    expect(statusCallCount(apiRequest)).toBe(1);
+    expect(onError).toHaveBeenCalledWith("");
+  });
 });
 
 function statusCallCount(mockFn: ReturnType<typeof vi.fn>) {

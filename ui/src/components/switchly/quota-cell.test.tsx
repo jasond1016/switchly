@@ -13,11 +13,12 @@ describe("QuotaCell", () => {
       />,
     );
 
-    const resetHintNode = screen.getByText("2天后");
+    const resetHintNode = screen.getByText("重置 2天后");
     expect(resetHintNode.getAttribute("title")).toBe("重置时间 2099-01-03 00:00:00 UTC");
+    expect(screen.getByRole("group", { name: "Session quota" }).getAttribute("title")).toContain("已用 12%");
   });
 
-  it("renders N/A when window is not supported", () => {
+  it("renders unavailable summary when window is not supported", () => {
     render(
       <QuotaCell
         label="Session"
@@ -28,7 +29,7 @@ describe("QuotaCell", () => {
       />,
     );
 
-    expect(screen.getByText("N/A")).toBeTruthy();
     expect(screen.getByText("免费账号无该额度窗口")).toBeTruthy();
+    expect(screen.getByText("Unavailable")).toBeTruthy();
   });
 });

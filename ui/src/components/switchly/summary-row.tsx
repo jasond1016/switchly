@@ -12,7 +12,7 @@ type SummaryRowProps = {
 
 export function SummaryRow({ activeAccountId, strategy, accountCount, readyCount, attentionCount, daemonRunning }: SummaryRowProps) {
   return (
-    <section className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+    <section className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1.15fr_1fr_1.65fr_1fr]">
       <div className="surface-panel rounded-2xl p-4">
         <div className="flex items-center gap-3">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/12 ring-1 ring-primary/10">
@@ -40,37 +40,35 @@ export function SummaryRow({ activeAccountId, strategy, accountCount, readyCount
       </div>
 
       <div className="surface-panel rounded-2xl p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/12 ring-1 ring-primary/10">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/12 ring-1 ring-primary/10">
             <Users className="size-4 text-primary" />
           </div>
-          <div className="min-w-0">
-            <p className="section-title mb-1">账号数</p>
-            <p className="text-base font-medium text-foreground">{accountCount} 个账号</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="surface-panel rounded-2xl p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-success/12 ring-1 ring-success/15">
-            <CheckCircle2 className="size-4 text-success" />
-          </div>
-          <div className="min-w-0">
-            <p className="section-title mb-1">就绪账号</p>
-            <p className="text-base font-medium text-foreground">{readyCount} 个可切换</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="surface-panel rounded-2xl p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-warning/12 ring-1 ring-warning/20">
-            <AlertTriangle className="size-4 text-[oklch(0.42_0.11_82)]" />
-          </div>
-          <div className="min-w-0">
-            <p className="section-title mb-1">需关注</p>
-            <p className="text-base font-medium text-foreground">{attentionCount} 个账号</p>
+          <div className="min-w-0 flex-1">
+            <p className="section-title mb-2">账号概览</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl bg-secondary/55 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Users className="size-3.5 text-primary" />
+                  <p className="text-[11px] font-medium text-muted-foreground">账号数</p>
+                </div>
+                <p className="mt-1 text-sm font-semibold text-foreground">{accountCount} 个账号</p>
+              </div>
+              <div className="rounded-xl bg-success/8 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-3.5 text-success" />
+                  <p className="text-[11px] font-medium text-muted-foreground">就绪账号</p>
+                </div>
+                <p className="mt-1 text-sm font-semibold text-foreground">{readyCount} 个可切换</p>
+              </div>
+              <div className="rounded-xl bg-warning/8 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="size-3.5 text-[oklch(0.42_0.11_82)]" />
+                  <p className="text-[11px] font-medium text-muted-foreground">需关注</p>
+                </div>
+                <p className="mt-1 text-sm font-semibold text-foreground">{attentionCount} 个账号</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

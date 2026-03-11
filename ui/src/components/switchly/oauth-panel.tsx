@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, Globe, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Globe, Loader2, Square, XCircle } from "lucide-react";
 import { oauthText, type OAuthSession, type OAuthUIStatus } from "../../lib/switchly";
 
 type OAuthPanelProps = {
@@ -6,9 +6,10 @@ type OAuthPanelProps = {
   oauthUIStatus: OAuthUIStatus;
   oauthSession: OAuthSession | null;
   onOAuthLogin: () => void;
+  onOAuthCancel: () => void;
 };
 
-export function OAuthPanel({ oauthPolling, oauthUIStatus, oauthSession, onOAuthLogin }: OAuthPanelProps) {
+export function OAuthPanel({ oauthPolling, oauthUIStatus, oauthSession, onOAuthLogin, onOAuthCancel }: OAuthPanelProps) {
   return (
     <div className="surface-panel rounded-2xl">
       <div className="border-b border-border/80 px-4 py-3.5">
@@ -19,14 +20,25 @@ export function OAuthPanel({ oauthPolling, oauthUIStatus, oauthSession, onOAuthL
         </h2>
       </div>
       <div className="flex flex-col gap-3 p-4">
-        <button
-          onClick={onOAuthLogin}
-          disabled={oauthPolling}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {oauthPolling ? <Loader2 className="size-4 animate-spin" /> : <Globe className="size-4" />}
-          通过浏览器登录
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onOAuthLogin}
+            disabled={oauthPolling}
+            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {oauthPolling ? <Loader2 className="size-4 animate-spin" /> : <Globe className="size-4" />}
+            通过浏览器登录
+          </button>
+          {oauthPolling ? (
+            <button
+              onClick={onOAuthCancel}
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-medium transition hover:bg-accent"
+            >
+              <Square className="size-3.5" />
+              取消
+            </button>
+          ) : null}
+        </div>
 
         <div
           className={`flex items-center gap-2 rounded-xl border p-3 ${

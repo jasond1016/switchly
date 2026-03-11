@@ -1,13 +1,9 @@
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, Play, RotateCcw, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AccountsTable } from "./components/switchly/accounts-table";
-import { ActionBar } from "./components/switchly/action-bar";
-import { DaemonPanel } from "./components/switchly/daemon-panel";
 import { useDashboardData } from "./hooks/switchly/use-dashboard-data";
 import { useDashboardFeedback } from "./hooks/switchly/use-dashboard-feedback";
-import { OAuthPanel } from "./components/switchly/oauth-panel";
-import { SummaryRow } from "./components/switchly/summary-row";
 import { useLocalStorageState } from "./hooks/use-local-storage-state";
 import { useDaemonControl } from "./hooks/switchly/use-daemon-control";
 import { useDashboardActions } from "./hooks/switchly/use-dashboard-actions";
@@ -31,7 +27,7 @@ function App() {
     onError: setError,
   });
 
-  const { quotaRefreshCadence, setQuotaRefreshCadence, quotaSyncBusy, quotaSyncAllBusy, runQuotaSync, runQuotaSyncAll } = useQuotaSync({
+  const { quotaRefreshCadence, setQuotaRefreshCadence, quotaSyncAllBusy, runQuotaSync, runQuotaSyncAll } = useQuotaSync({
     apiRequest,
     loadStatus,
     activeAccountID: status?.active_account_id,
@@ -39,31 +35,21 @@ function App() {
     onNotice: setSyncNotice,
   });
 
-  const { oauthSession, oauthPolling, loginWithBrowser } = useOAuthFlow({
+  const { oauthSession, oauthPolling, loginWithBrowser, cancelOAuth } = useOAuthFlow({
     apiRequest,
     refreshAll: refreshAllBase,
     runQuotaSync,
     onError: setError,
   });
 
-  const { daemonBusy, daemonOutput, onDaemonCommand } = useDaemonControl({
+  const { daemonBusy, onDaemonCommand } = useDaemonControl({
     daemonParams,
     refreshAll: refreshAllBase,
     runQuotaSync,
     onError: setError,
   });
 
-  const {
-    simBusy,
-    codexImportCandidate,
-    codexImportBusy,
-    discoverCodexImportCandidate,
-    onUseAccount,
-    onStrategy,
-    onSimulateLimit,
-    onImportLocalCodexAccount,
-    onDismissLocalCodexImport,
-  } = useDashboardActions({
+  const { codexImportCandidate, codexImportBusy, discoverCodexImportCandidate, onUseAccount, onStrategy, onImportLocalCodexAccount, onDismissLocalCodexImport } = useDashboardActions({
     apiRequest,
     loadStatus,
     reloadDashboard: refreshAllBase,
@@ -76,7 +62,9 @@ function App() {
     await refreshAllBase();
     await discoverCodexImportCandidate();
   }, [discoverCodexImportCandidate, refreshAllBase]);
-  const autoStartAttemptedRef = useRef<string>("");
+
+  const autoStartAttemptedRef = useRef("");
+  const normalizedStrategyRef = useRef("");
 
   useEffect(() => {
     void refreshAll();
@@ -119,30 +107,34 @@ function App() {
     void onDaemonCommand("start");
   }, [baseURL, daemonBusy, daemonInfo, daemonInfoLoaded, loading, onDaemonCommand]);
 
+  useEffect(() => {
+    const strategy = status?.strategy;
+    if (!strategy || strategy === "fill-first") {
+      normalizedStrategyRef.current = "";
+      return;
+    }
+    if (normalizedStrategyRef.current === strategy) {
+      return;
+    }
+    normalizedStrategyRef.current = strategy;
+    void onStrategy("fill-first");
+  }, [onStrategy, status?.strategy]);
+
   const daemonRunning = daemonInfo !== null;
   const oauthUIStatus = oauthStatus(oauthSession);
   const accounts = status?.accounts ?? [];
   const attentionCount = accounts.filter((acc) => acc.status === "need_reauth" || acc.status === "disabled" || acc.quota.limit_reached).length;
-  const readyCount = accounts.filter((acc) => acc.status === "ready" || acc.id === status?.active_account_id).length;
-  const daemonLogs = daemonOutput
-    ? daemonOutput
-        .split(/\r?\n/)
-        .map((x) => x.trim())
-        .filter((x) => x.length > 0)
-    : [];
 
   return (
     <main className="min-h-screen bg-background">
       <div className="dashboard-shell mx-auto max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6">
         <header className="hero-panel surface-panel mb-6 rounded-[1.75rem] px-5 py-5 sm:px-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-stretch xl:justify-between">
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="chip">
-                  <span className={`status-dot ${daemonRunning ? "bg-success" : "bg-warning"}`} />
-                  {daemonRunning ? "Daemon Online" : "Daemon Offline"}
-                </span>
                 <span className="chip">Cross-platform local router</span>
+                <span className="chip">{accounts.length} accounts loaded</span>
+                <span className={`chip ${attentionCount > 0 ? "border-warning/30 text-[oklch(0.42_0.11_82)]" : ""}`}>{attentionCount} alerts</span>
               </div>
 
               <div className="flex items-start gap-4">
@@ -159,19 +151,46 @@ function App() {
               </div>
             </div>
 
-            <div className="flex flex-col items-stretch gap-3 xl:min-w-[280px] xl:items-end">
-              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                <span className="chip">{accounts.length} accounts loaded</span>
-                <span className={`chip ${attentionCount > 0 ? "border-warning/30 text-[oklch(0.42_0.11_82)]" : ""}`}>{attentionCount} alerts</span>
+            <div className="flex flex-col justify-end xl:min-w-[360px]">
+              <div className="rounded-2xl border border-border/80 bg-card/72 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="section-title mb-1">Daemon</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`status-dot ${daemonRunning ? "bg-success" : "bg-warning"}`} />
+                      <span className="text-sm font-medium text-foreground">{daemonRunning ? "运行中" : "已停止"}</span>
+                    </div>
+                    <p className="mt-2 font-mono text-[11px] text-muted-foreground">{daemonParams.addr}</p>
+                  </div>
+                  <span className="chip">{daemonRunning ? "Local router ready" : "Waiting to start"}</span>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2 xl:justify-end">
+                  <button
+                    onClick={() => void onDaemonCommand("start")}
+                    disabled={daemonBusy !== "" || daemonRunning}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {daemonBusy === "start" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+                    启动
+                  </button>
+                  <button
+                    onClick={() => void onDaemonCommand("stop")}
+                    disabled={daemonBusy !== "" || !daemonRunning}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {daemonBusy === "stop" ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5" />}
+                    停止
+                  </button>
+                  <button
+                    onClick={() => void onDaemonCommand("restart")}
+                    disabled={daemonBusy !== "" || !daemonRunning || daemonInfo?.restart_supported === false}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-primary/20 bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {daemonBusy === "restart" ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                    重启
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={() => void refreshAll()}
-                disabled={loading}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                {loading ? "Refreshing..." : "Refresh"}
-              </button>
             </div>
           </div>
 
@@ -193,30 +212,6 @@ function App() {
             </div>
           </details>
         </header>
-
-        <SummaryRow
-          activeAccountId={status?.active_account_id ?? "-"}
-          strategy={status?.strategy}
-          accountCount={accounts.length}
-          readyCount={readyCount}
-          attentionCount={attentionCount}
-          daemonRunning={daemonRunning}
-        />
-
-        <ActionBar
-          strategy={status?.strategy}
-          quotaRefreshCadence={quotaRefreshCadence}
-          quotaSyncBusy={quotaSyncBusy}
-          quotaSyncAllBusy={quotaSyncAllBusy}
-          simBusy={simBusy}
-          syncNotice={syncNotice}
-          error={error}
-          onStrategyChange={(s) => void onStrategy(s)}
-          onQuotaRefreshCadenceChange={setQuotaRefreshCadence}
-          onSyncQuota={() => void runQuotaSync({ showBusy: true, silent: false })}
-          onSyncQuotaAll={() => void runQuotaSyncAll({ showBusy: true, silent: false })}
-          onSimulateLimit={() => void onSimulateLimit()}
-        />
 
         {codexImportCandidate?.found && codexImportCandidate.candidate ? (
           <section className="surface-panel mb-4 rounded-2xl border border-success/30 bg-success/5 p-4">
@@ -254,22 +249,20 @@ function App() {
           accounts={accounts}
           activeAccountID={status?.active_account_id}
           nowMs={nowMs}
+          quotaRefreshCadence={quotaRefreshCadence}
+          quotaSyncAllBusy={quotaSyncAllBusy}
+          syncNotice={syncNotice}
+          error={error}
+          oauthPolling={oauthPolling}
+          oauthUIStatus={oauthUIStatus}
+          oauthSession={oauthSession}
+          onQuotaRefreshCadenceChange={setQuotaRefreshCadence}
+          onSyncQuotaAll={() => void runQuotaSyncAll({ showBusy: true, silent: false })}
+          onOAuthLogin={() => void loginWithBrowser()}
+          onOAuthCancel={cancelOAuth}
           onUseAccount={(id) => void onUseAccount(id)}
           onOAuthReauth={() => void loginWithBrowser()}
         />
-
-        <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <OAuthPanel oauthPolling={oauthPolling} oauthUIStatus={oauthUIStatus} oauthSession={oauthSession} onOAuthLogin={() => void loginWithBrowser()} />
-          <DaemonPanel
-            addr={daemonParams.addr}
-            publicBaseURL={daemonParams.publicBaseURL}
-            daemonBusy={daemonBusy}
-            daemonRunning={daemonRunning}
-            daemonInfo={daemonInfo}
-            daemonLogs={daemonLogs}
-            onDaemonCommand={(cmd) => void onDaemonCommand(cmd)}
-          />
-        </section>
       </div>
     </main>
   );

@@ -26,15 +26,15 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders dashboard data and refreshes", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+  it("renders dashboard data without legacy summary cards", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
 
       if (url.endsWith("/v1/status")) {
         return new Response(
           JSON.stringify({
             active_account_id: "acc-main",
-            strategy: "round-robin",
+            strategy: "fill-first",
             accounts: [
               {
                 id: "acc-main",
@@ -68,10 +68,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -81,13 +78,11 @@ describe("App", () => {
 
     const accountNodes = await screen.findAllByText("acc-main");
     expect(accountNodes.length).toBeGreaterThan(0);
-
-    const refreshButton = screen.getByRole("button", { name: /Refresh/i });
-    fireEvent.click(refreshButton);
-
-    await waitFor(() => {
-      expect(statusCallCount(fetchMock)).toBeGreaterThanOrEqual(2);
-    });
+    expect(screen.queryByRole("button", { name: /Refresh/i })).toBeNull();
+    expect(screen.queryByText("当前账号")).toBeNull();
+    expect(screen.getByRole("button", { name: /Sync All Quotas/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "追加账号" })).toBeTruthy();
+    expect(screen.queryByText("OAuth 授权")).toBeNull();
   });
 
   it("shows status request errors", async () => {
@@ -111,10 +106,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -133,14 +125,10 @@ describe("App", () => {
       const url = String(input);
 
       if (url.endsWith("/v1/status")) {
-        return new Response(
-          JSON.stringify({
-            active_account_id: "acc-main",
-            strategy: "round-robin",
-            accounts: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ active_account_id: "acc-main", strategy: "fill-first", accounts: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       if (url.endsWith("/v1/daemon/info")) {
@@ -156,10 +144,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -179,14 +164,10 @@ describe("App", () => {
       const url = String(input);
 
       if (url.endsWith("/v1/status")) {
-        return new Response(
-          JSON.stringify({
-            active_account_id: "acc-main",
-            strategy: "round-robin",
-            accounts: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ active_account_id: "acc-main", strategy: "fill-first", accounts: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       if (url.endsWith("/v1/daemon/info")) {
@@ -194,10 +175,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -224,7 +202,7 @@ describe("App", () => {
         return new Response(
           JSON.stringify({
             active_account_id: "acc-main",
-            strategy: "round-robin",
+            strategy: "fill-first",
             accounts: [
               {
                 id: "acc-main",
@@ -250,10 +228,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       throw new Error(`unexpected request: ${url}`);
@@ -279,7 +254,7 @@ describe("App", () => {
         return new Response(
           JSON.stringify({
             active_account_id: "acc-main",
-            strategy: "round-robin",
+            strategy: "fill-first",
             accounts: [
               {
                 id: "acc-main",
@@ -326,10 +301,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       if (url.endsWith("/v1/accounts/acc-alt/activate")) {
@@ -341,13 +313,19 @@ describe("App", () => {
 
     render(<App />);
 
-    const useButton = await screen.findByRole("button", { name: "使用" });
-    fireEvent.click(useButton);
+    const useButtons = await screen.findAllByRole("button", { name: "使用" });
+    fireEvent.click(useButtons[0]);
 
     await screen.findByText("HTTP 500: activate failed");
   });
 
-  it("hides codex candidate after dismiss and keeps it dismissed on refresh", async () => {
+  it("hides codex candidate after dismiss and keeps it dismissed on tray refresh", async () => {
+    let trayHandler: (() => void) | undefined;
+    listenMock.mockImplementation(async (_event: string, handler: () => void) => {
+      trayHandler = handler;
+      return () => {};
+    });
+
     let candidateCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
@@ -356,7 +334,7 @@ describe("App", () => {
         return new Response(
           JSON.stringify({
             active_account_id: "acc-main",
-            strategy: "round-robin",
+            strategy: "fill-first",
             accounts: [
               {
                 id: "acc-main",
@@ -416,7 +394,11 @@ describe("App", () => {
 
     expect(screen.queryByText("检测到本地 Codex 登录，可导入 Switchly 账号列表")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Refresh/i }));
+    if (!trayHandler) {
+      throw new Error("tray refresh handler was not registered");
+    }
+    trayHandler();
+
     await waitFor(() => {
       expect(statusCallCount(fetchMock)).toBeGreaterThanOrEqual(2);
     });
@@ -436,14 +418,10 @@ describe("App", () => {
       const url = String(input);
 
       if (url.endsWith("/v1/status")) {
-        return new Response(
-          JSON.stringify({
-            active_account_id: "acc-main",
-            strategy: "round-robin",
-            accounts: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ active_account_id: "acc-main", strategy: "fill-first", accounts: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       if (url.endsWith("/v1/daemon/info")) {
@@ -459,10 +437,7 @@ describe("App", () => {
       }
 
       if (url.endsWith("/v1/accounts/import/codex/candidate")) {
-        return new Response(
-          JSON.stringify({ found: false, needs_import: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ found: false, needs_import: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       throw new Error(`unexpected request: ${url}`);

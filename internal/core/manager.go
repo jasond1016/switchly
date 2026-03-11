@@ -337,6 +337,15 @@ func (m *Manager) SyncQuotaFromCodexAPI(ctx context.Context, accountID string) (
 
 	snap, err := m.quotaFetch(ctx, m.httpClient, secretsData.AccessToken, secretsData.AccountID)
 	if err != nil {
+		if shouldMarkNeedReauth(err) {
+			acct.Status = model.AccountNeedReauth
+			acct.LastError = err.Error()
+			acct.UpdatedAt = time.Now().UTC()
+			state.Accounts[targetID] = acct
+			if saveErr := m.stateStore.Save(state); saveErr != nil {
+				return QuotaSyncResult{}, fmt.Errorf("quota fetch for account %s: %v (also failed to persist state: %v)", targetID, err, saveErr)
+			}
+		}
 		return QuotaSyncResult{}, err
 	}
 
@@ -617,6 +626,30 @@ func shouldSwitch(statusCode int, message string) bool {
 		}
 	}
 	return statusCode == 429 || statusCode == 503 || statusCode == 500
+}
+
+func shouldMarkNeedReauth(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	patterns := []string{
+		"status 401",
+		"status 403",
+		"unauthorized",
+		"forbidden",
+		"invalid_token",
+		"invalid token",
+		"token expired",
+		"refresh token missing",
+		"refresh token expired",
+	}
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) ensureFreshToken(ctx context.Context, account *model.Account) error {
