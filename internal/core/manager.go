@@ -18,6 +18,7 @@ import (
 )
 
 const codexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+const tokenRefreshLeadTime = 30 * time.Minute
 
 type AddAccountInput struct {
 	ID       string
@@ -781,7 +782,7 @@ func (m *Manager) ensureFreshToken(ctx context.Context, account *model.Account) 
 	}
 
 	now := time.Now().UTC()
-	if secretsData.AccessExpiresAt.IsZero() || secretsData.AccessExpiresAt.After(now.Add(30*time.Second)) {
+	if secretsData.AccessExpiresAt.IsZero() || secretsData.AccessExpiresAt.After(now.Add(tokenRefreshLeadTime)) {
 		account.AccessExpiresAt = secretsData.AccessExpiresAt
 		account.RefreshExpiresAt = secretsData.RefreshExpiresAt
 		return nil

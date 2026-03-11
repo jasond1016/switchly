@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -394,8 +395,8 @@ func TestDeleteActiveAccountSwitchesToReplacement(t *testing.T) {
 	}
 	secrets := &fakeSecretStore{
 		entries: map[string]model.AuthSecrets{
-			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
-			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
+			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
 		},
 	}
 	applier := &fakeApplier{}
@@ -435,7 +436,7 @@ func TestDeleteActiveAccountClearsAppliedStateWhenNoReplacement(t *testing.T) {
 	}
 	secrets := &fakeSecretStore{
 		entries: map[string]model.AuthSecrets{
-			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
 		},
 	}
 	applier := &fakeApplier{}
@@ -474,9 +475,9 @@ func TestDeleteActiveAccountContinuesPastBrokenCandidate(t *testing.T) {
 	}
 	secrets := &fakeSecretStore{
 		entries: map[string]model.AuthSecrets{
-			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
 			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(-time.Minute)},
-			"C": {AccessToken: "token-c", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"C": {AccessToken: "token-c", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
 		},
 	}
 	applier := &fakeApplier{}
@@ -510,7 +511,7 @@ func TestDeleteAccountRollsBackOnSecretsDeleteFailure(t *testing.T) {
 	}
 	secrets := &fakeSecretStore{
 		entries: map[string]model.AuthSecrets{
-			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
 		},
 		deleteErr: errors.New("disk busy"),
 	}
@@ -549,8 +550,8 @@ func TestHandleQuotaErrorAppliesSwitchedAccount(t *testing.T) {
 	}
 	secrets := &fakeSecretStore{
 		entries: map[string]model.AuthSecrets{
-			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
-			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
+			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour)},
 		},
 	}
 	applier := &fakeApplier{}
@@ -591,7 +592,7 @@ func TestSyncQuotaFromCodexAPIFetchesViaAPI(t *testing.T) {
 			"A": {
 				AccessToken:     "token-a",
 				AccountID:       "acct-a",
-				AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute),
+				AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour),
 			},
 		},
 	}
@@ -644,7 +645,7 @@ func TestSyncQuotaFromCodexAPIReturnsFetcherError(t *testing.T) {
 			"A": {
 				AccessToken:     "token-a",
 				AccountID:       "acct-a",
-				AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute),
+				AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour),
 			},
 		},
 	}
@@ -688,7 +689,7 @@ func TestSyncQuotaFromCodexAPIMarksNeedReauthWhenFetcherReturnsUnauthorized(t *t
 			"A": {
 				AccessToken:     "token-a",
 				AccountID:       "acct-a",
-				AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute),
+				AccessExpiresAt: time.Now().UTC().Add(2 * time.Hour),
 			},
 		},
 	}
@@ -750,6 +751,114 @@ func TestSyncQuotaFromCodexAPIMarksNeedReauthWhenRefreshFails(t *testing.T) {
 	}
 }
 
+func TestSyncQuotaFromCodexAPIRefreshesWhenTokenIsWithinLeadWindow(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {
+				AccessToken:     "token-old",
+				RefreshToken:    "refresh-a",
+				AccountID:       "acct-a",
+				AccessExpiresAt: now.Add(20 * time.Minute),
+			},
+		},
+	}
+
+	var gotAccessToken string
+	mgr := NewManager(
+		state,
+		secrets,
+		WithCodexQuotaFetcher(func(ctx context.Context, httpClient *http.Client, accessToken, accountID string) (quota.Snapshot, error) {
+			gotAccessToken = accessToken
+			return quota.Snapshot{
+				Session: &quota.Window{UsedPercent: 21},
+				Weekly:  &quota.Window{UsedPercent: 33},
+			}, nil
+		}),
+	)
+	mgr.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodPost || r.URL.String() != "https://auth.openai.com/oauth/token" {
+				t.Fatalf("unexpected refresh request: %s %s", r.Method, r.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"access_token":"token-new","expires_in":3600}`), nil
+		}),
+	}
+
+	if _, err := mgr.SyncQuotaFromCodexAPI(context.Background(), ""); err != nil {
+		t.Fatalf("expected sync success, got err: %v", err)
+	}
+	if gotAccessToken != "token-new" {
+		t.Fatalf("expected refreshed token to be used, got %q", gotAccessToken)
+	}
+	if got := secrets.entries["A"].AccessToken; got != "token-new" {
+		t.Fatalf("expected refreshed token persisted, got %q", got)
+	}
+	if state.state.Accounts["A"].LastRefreshAt.IsZero() {
+		t.Fatal("expected last_refresh_at to be updated")
+	}
+}
+
+func TestSyncQuotaFromCodexAPIDoesNotRefreshWhenTokenOutsideLeadWindow(t *testing.T) {
+	now := time.Now().UTC()
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {
+				AccessToken:     "token-old",
+				RefreshToken:    "refresh-a",
+				AccountID:       "acct-a",
+				AccessExpiresAt: now.Add(45 * time.Minute),
+			},
+		},
+	}
+
+	var gotAccessToken string
+	mgr := NewManager(
+		state,
+		secrets,
+		WithCodexQuotaFetcher(func(ctx context.Context, httpClient *http.Client, accessToken, accountID string) (quota.Snapshot, error) {
+			gotAccessToken = accessToken
+			return quota.Snapshot{
+				Session: &quota.Window{UsedPercent: 21},
+				Weekly:  &quota.Window{UsedPercent: 33},
+			}, nil
+		}),
+	)
+	mgr.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			t.Fatalf("refresh endpoint should not be called: %s %s", r.Method, r.URL.String())
+			return nil, nil
+		}),
+	}
+
+	if _, err := mgr.SyncQuotaFromCodexAPI(context.Background(), ""); err != nil {
+		t.Fatalf("expected sync success, got err: %v", err)
+	}
+	if gotAccessToken != "token-old" {
+		t.Fatalf("expected original token to be used, got %q", gotAccessToken)
+	}
+}
+
 func TestSyncAllQuotasFromCodexAPIContinuesOnPerAccountFailures(t *testing.T) {
 	now := time.Now().UTC()
 	state := &fakeStateStore{
@@ -766,8 +875,8 @@ func TestSyncAllQuotasFromCodexAPIContinuesOnPerAccountFailures(t *testing.T) {
 	}
 	secrets := &fakeSecretStore{
 		entries: map[string]model.AuthSecrets{
-			"A": {AccessToken: "token-a", AccountID: "acct-a", AccessExpiresAt: now.Add(5 * time.Minute)},
-			"B": {AccessToken: "token-b", AccountID: "acct-b", AccessExpiresAt: now.Add(5 * time.Minute)},
+			"A": {AccessToken: "token-a", AccountID: "acct-a", AccessExpiresAt: now.Add(2 * time.Hour)},
+			"B": {AccessToken: "token-b", AccountID: "acct-b", AccessExpiresAt: now.Add(2 * time.Hour)},
 		},
 	}
 
@@ -1010,4 +1119,18 @@ func cloneState(in model.AppState) model.AppState {
 		out.Accounts[id] = acct
 	}
 	return out
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func jsonHTTPResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }
