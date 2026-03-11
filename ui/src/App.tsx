@@ -49,7 +49,7 @@ function App() {
     onError: setError,
   });
 
-  const { codexImportCandidate, codexImportBusy, discoverCodexImportCandidate, onUseAccount, onStrategy, onImportLocalCodexAccount, onDismissLocalCodexImport } = useDashboardActions({
+  const { codexImportCandidate, codexImportBusy, discoverCodexImportCandidate, onUseAccount, onDeleteAccount, onStrategy, onImportLocalCodexAccount, onDismissLocalCodexImport } = useDashboardActions({
     apiRequest,
     loadStatus,
     reloadDashboard: refreshAllBase,
@@ -261,6 +261,7 @@ function App() {
           onOAuthLogin={() => void loginWithBrowser()}
           onOAuthCancel={cancelOAuth}
           onUseAccount={(id) => void onUseAccount(id)}
+          onDeleteAccount={(id) => void onDeleteAccount(id)}
           onOAuthReauth={() => void loginWithBrowser()}
         />
       </div>

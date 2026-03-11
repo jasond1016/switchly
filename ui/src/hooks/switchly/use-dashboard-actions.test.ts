@@ -72,6 +72,117 @@ describe("useDashboardActions", () => {
     expect(onError).toHaveBeenLastCalledWith("activate failed");
   });
 
+  it("deletes account and reports success", async () => {
+    const apiRequest = vi.fn(async (path: string) => {
+      if (path === "/v1/accounts/acc-9") {
+        return {
+          deleted_account_id: "acc-9",
+          was_active: false,
+          switched: false,
+          active_account_id: "acc-main",
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const reloadDashboard = vi.fn(async () => {});
+    const runQuotaSync = vi.fn(async () => true);
+    const onError = vi.fn();
+    const onNotice = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDashboardActions({
+        apiRequest: apiRequest as ApiRequest,
+        loadStatus: vi.fn(async () => {}),
+        reloadDashboard,
+        runQuotaSync,
+        onError,
+        onNotice,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.onDeleteAccount("acc-9");
+    });
+
+    expect(apiRequest).toHaveBeenCalledWith("/v1/accounts/acc-9", expect.objectContaining({ method: "DELETE" }));
+    expect(reloadDashboard).toHaveBeenCalledTimes(1);
+    expect(runQuotaSync).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenLastCalledWith({ tone: "success", message: "已删除账号 acc-9" });
+  });
+
+  it("deletes active account, syncs replacement, and reports switch notice", async () => {
+    const apiRequest = vi.fn(async (path: string) => {
+      if (path === "/v1/accounts/acc-1") {
+        return {
+          deleted_account_id: "acc-1",
+          was_active: true,
+          switched: true,
+          switched_to_account_id: "acc-2",
+          active_account_id: "acc-2",
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const reloadDashboard = vi.fn(async () => {});
+    const runQuotaSync = vi.fn(async () => true);
+    const onNotice = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDashboardActions({
+        apiRequest: apiRequest as ApiRequest,
+        loadStatus: vi.fn(async () => {}),
+        reloadDashboard,
+        runQuotaSync,
+        onError: vi.fn(),
+        onNotice,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.onDeleteAccount("acc-1");
+    });
+
+    expect(runQuotaSync).toHaveBeenCalledWith({ accountID: "acc-2", silent: true });
+    expect(onNotice).toHaveBeenLastCalledWith({ tone: "success", message: "已删除账号 acc-1，已自动切换到 acc-2" });
+  });
+
+  it("deletes last active account without running quota sync", async () => {
+    const apiRequest = vi.fn(async (path: string) => {
+      if (path === "/v1/accounts/acc-1") {
+        return {
+          deleted_account_id: "acc-1",
+          was_active: true,
+          switched: false,
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const reloadDashboard = vi.fn(async () => {});
+    const runQuotaSync = vi.fn(async () => true);
+    const onNotice = vi.fn();
+
+    const { result } = renderHook(() =>
+      useDashboardActions({
+        apiRequest: apiRequest as ApiRequest,
+        loadStatus: vi.fn(async () => {}),
+        reloadDashboard,
+        runQuotaSync,
+        onError: vi.fn(),
+        onNotice,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.onDeleteAccount("acc-1");
+    });
+
+    expect(runQuotaSync).not.toHaveBeenCalled();
+    expect(onNotice).toHaveBeenLastCalledWith({ tone: "warning", message: "已删除账号 acc-1，当前无活跃账号" });
+  });
+
   it("ignores duplicated account switch while previous request is in flight", async () => {
     let releaseActivate = () => {};
     const apiRequest = vi.fn((path: string) => {

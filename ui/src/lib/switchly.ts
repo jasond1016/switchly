@@ -82,6 +82,14 @@ export type CodexImportResponse = {
   account: Account;
 };
 
+export type DeleteAccountResponse = {
+  deleted_account_id: string;
+  was_active: boolean;
+  switched: boolean;
+  switched_to_account_id?: string;
+  active_account_id?: string;
+};
+
 export type SyncNotice = {
   tone: SyncTone;
   message: string;

@@ -338,6 +338,203 @@ func TestSetActiveAccountDoesNotChangeStateWhenApplyFails(t *testing.T) {
 	}
 }
 
+func TestDeleteAccountRemovesInactiveAccount(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+				"B": {ID: "B", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a"},
+			"B": {AccessToken: "token-b"},
+		},
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	result, err := mgr.DeleteAccount(context.Background(), "B")
+	if err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+	if result.WasActive || result.Switched {
+		t.Fatalf("unexpected delete result: %#v", result)
+	}
+	if result.ActiveAccountID != "A" {
+		t.Fatalf("active account mismatch: %s", result.ActiveAccountID)
+	}
+	if _, ok := state.state.Accounts["B"]; ok {
+		t.Fatal("deleted account should be removed from state")
+	}
+	if _, ok := secrets.entries["B"]; ok {
+		t.Fatal("deleted account secrets should be removed")
+	}
+	if applier.calls != 0 || applier.clearCalls != 0 {
+		t.Fatalf("inactive delete should not apply or clear, got apply=%d clear=%d", applier.calls, applier.clearCalls)
+	}
+}
+
+func TestDeleteActiveAccountSwitchesToReplacement(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+				"B": {ID: "B", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+		},
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	result, err := mgr.DeleteAccount(context.Background(), "A")
+	if err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+	if !result.WasActive || !result.Switched || result.SwitchedToAccount != "B" || result.ActiveAccountID != "B" {
+		t.Fatalf("unexpected delete result: %#v", result)
+	}
+	if state.state.ActiveAccountID != "B" {
+		t.Fatalf("active account mismatch: %s", state.state.ActiveAccountID)
+	}
+	if _, ok := state.state.Accounts["A"]; ok {
+		t.Fatal("deleted active account should be removed from state")
+	}
+	if _, ok := secrets.entries["A"]; ok {
+		t.Fatal("deleted active account secrets should be removed")
+	}
+	if applier.lastAccountID != "B" || applier.clearCalls != 0 {
+		t.Fatalf("expected replacement apply only, got last=%s clear=%d", applier.lastAccountID, applier.clearCalls)
+	}
+}
+
+func TestDeleteActiveAccountClearsAppliedStateWhenNoReplacement(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+		},
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	result, err := mgr.DeleteAccount(context.Background(), "A")
+	if err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+	if !result.WasActive || result.Switched || result.ActiveAccountID != "" {
+		t.Fatalf("unexpected delete result: %#v", result)
+	}
+	if state.state.ActiveAccountID != "" {
+		t.Fatalf("active account should be cleared, got %q", state.state.ActiveAccountID)
+	}
+	if len(state.state.Accounts) != 0 {
+		t.Fatalf("expected all accounts removed, got %#v", state.state.Accounts)
+	}
+	if applier.clearCalls != 1 {
+		t.Fatalf("expected one clear call, got %d", applier.clearCalls)
+	}
+}
+
+func TestDeleteActiveAccountContinuesPastBrokenCandidate(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+				"B": {ID: "B", Provider: "codex", Status: model.AccountReady},
+				"C": {ID: "C", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+			"B": {AccessToken: "token-b", AccessExpiresAt: time.Now().UTC().Add(-time.Minute)},
+			"C": {AccessToken: "token-c", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+		},
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	result, err := mgr.DeleteAccount(context.Background(), "A")
+	if err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+	if result.SwitchedToAccount != "C" {
+		t.Fatalf("expected switch to C, got %#v", result)
+	}
+	if got := state.state.Accounts["B"].Status; got != model.AccountNeedReauth {
+		t.Fatalf("broken candidate status mismatch: %s", got)
+	}
+	if !strings.Contains(state.state.Accounts["B"].LastError, "refresh token missing") {
+		t.Fatalf("unexpected broken candidate error: %q", state.state.Accounts["B"].LastError)
+	}
+}
+
+func TestDeleteAccountRollsBackOnSecretsDeleteFailure(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {ID: "A", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {AccessToken: "token-a", AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute)},
+		},
+		deleteErr: errors.New("disk busy"),
+	}
+	applier := &fakeApplier{}
+	mgr := NewManager(state, secrets, WithActiveAccountApplier(applier))
+
+	errResult, err := mgr.DeleteAccount(context.Background(), "A")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if errResult != (DeleteAccountResult{}) {
+		t.Fatalf("expected zero result on failure, got %#v", errResult)
+	}
+	if state.state.ActiveAccountID != "A" {
+		t.Fatalf("active account should be restored, got %q", state.state.ActiveAccountID)
+	}
+	if _, ok := state.state.Accounts["A"]; !ok {
+		t.Fatal("account should be restored in state")
+	}
+	if applier.clearCalls != 1 || applier.lastAccountID != "A" {
+		t.Fatalf("expected clear then rollback apply, got clear=%d last=%s", applier.clearCalls, applier.lastAccountID)
+	}
+}
+
 func TestHandleQuotaErrorAppliesSwitchedAccount(t *testing.T) {
 	state := &fakeStateStore{
 		state: model.AppState{
@@ -749,12 +946,23 @@ type fakeApplier struct {
 	calls         int
 	lastAccountID string
 	applyErr      error
+	applyErrByID  map[string]error
+	clearCalls    int
+	clearErr      error
 }
 
 func (a *fakeApplier) Apply(_ context.Context, account model.Account, _ model.AuthSecrets) error {
 	a.calls++
 	a.lastAccountID = account.ID
+	if err, ok := a.applyErrByID[account.ID]; ok {
+		return err
+	}
 	return a.applyErr
+}
+
+func (a *fakeApplier) Clear(_ context.Context) error {
+	a.clearCalls++
+	return a.clearErr
 }
 
 func (s *fakeSecretStore) Put(accountID string, secrets model.AuthSecrets) error {

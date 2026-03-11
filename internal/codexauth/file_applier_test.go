@@ -76,3 +76,37 @@ func TestApplySkipsNonCodexProvider(t *testing.T) {
 		t.Fatalf("file should not be created for non-codex provider")
 	}
 }
+
+func TestClearRemovesTokensAndPreservesOtherFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	seed := map[string]any{
+		"welcome_seen": true,
+		"tokens": map[string]any{
+			"access_token": "old-access",
+		},
+	}
+	raw, _ := json.Marshal(seed)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	applier := NewFileApplier(path)
+	if err := applier.Clear(context.Background()); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	updatedRaw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read updated file: %v", err)
+	}
+	var updated map[string]any
+	if err := json.Unmarshal(updatedRaw, &updated); err != nil {
+		t.Fatalf("decode updated file: %v", err)
+	}
+	if updated["welcome_seen"] != true {
+		t.Fatalf("expected preserved field, got %#v", updated["welcome_seen"])
+	}
+	if _, ok := updated["tokens"]; ok {
+		t.Fatalf("expected tokens removed, got %#v", updated["tokens"])
+	}
+}

@@ -33,6 +33,14 @@ type SwitchDecision struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
+type DeleteAccountResult struct {
+	DeletedAccountID  string `json:"deleted_account_id"`
+	WasActive         bool   `json:"was_active"`
+	Switched          bool   `json:"switched"`
+	SwitchedToAccount string `json:"switched_to_account_id,omitempty"`
+	ActiveAccountID   string `json:"active_account_id,omitempty"`
+}
+
 type StatusSnapshot struct {
 	ActiveAccountID string                `json:"active_account_id,omitempty"`
 	Strategy        model.RoutingStrategy `json:"strategy"`
@@ -68,6 +76,7 @@ var (
 
 type ActiveAccountApplier interface {
 	Apply(ctx context.Context, account model.Account, secrets model.AuthSecrets) error
+	Clear(ctx context.Context) error
 }
 
 type ManagerOption func(*Manager)
@@ -229,6 +238,103 @@ func (m *Manager) SetStrategy(ctx context.Context, strategy model.RoutingStrateg
 	}
 	state.Strategy = strategy
 	return m.stateStore.Save(state)
+}
+
+func (m *Manager) DeleteAccount(ctx context.Context, accountID string) (DeleteAccountResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state, err := m.stateStore.Load()
+	if err != nil {
+		return DeleteAccountResult{}, err
+	}
+
+	acct, ok := state.Accounts[accountID]
+	if !ok {
+		return DeleteAccountResult{}, fmt.Errorf("account %s not found", accountID)
+	}
+
+	originalState := cloneAppState(state)
+	wasActive := state.ActiveAccountID == accountID
+	result := DeleteAccountResult{
+		DeletedAccountID: accountID,
+		WasActive:        wasActive,
+	}
+
+	if wasActive {
+		order := orderedCandidates(state, accountID)
+		for _, candidateID := range order {
+			candidate := state.Accounts[candidateID]
+			if candidate.Status == model.AccountDisabled {
+				continue
+			}
+
+			if err := m.ensureFreshToken(ctx, &candidate); err != nil {
+				candidate.Status = model.AccountNeedReauth
+				candidate.LastError = err.Error()
+				candidate.UpdatedAt = time.Now().UTC()
+				state.Accounts[candidateID] = candidate
+				continue
+			}
+
+			now := time.Now().UTC()
+			candidate.Status = model.AccountReady
+			candidate.LastError = ""
+			candidate.UpdatedAt = now
+
+			if err := m.applyAccount(ctx, candidate); err != nil {
+				candidate.LastError = err.Error()
+				candidate.UpdatedAt = time.Now().UTC()
+				state.Accounts[candidateID] = candidate
+				continue
+			}
+
+			candidate.LastAppliedAt = now
+			state.Accounts[candidateID] = candidate
+			state.ActiveAccountID = candidateID
+			result.Switched = true
+			result.SwitchedToAccount = candidateID
+			break
+		}
+	}
+
+	delete(state.Accounts, accountID)
+
+	if wasActive && !result.Switched {
+		state.ActiveAccountID = ""
+		if err := m.clearAppliedAccount(ctx); err != nil {
+			return DeleteAccountResult{}, fmt.Errorf("clear active account: %w", err)
+		}
+	}
+
+	result.ActiveAccountID = state.ActiveAccountID
+
+	if err := m.stateStore.Save(state); err != nil {
+		if wasActive {
+			if rollbackErr := m.applyAccount(ctx, acct); rollbackErr != nil {
+				return DeleteAccountResult{}, fmt.Errorf("save state failed: %v (apply rollback failed: %v)", err, rollbackErr)
+			}
+		}
+		return DeleteAccountResult{}, err
+	}
+
+	if err := m.secrets.Delete(accountID); err != nil {
+		rollbackErr := m.stateStore.Save(originalState)
+		if wasActive {
+			if applyRollbackErr := m.applyAccount(ctx, acct); applyRollbackErr != nil {
+				if rollbackErr != nil {
+					return DeleteAccountResult{}, fmt.Errorf("delete secrets for account %s: %v (state rollback failed: %v, apply rollback failed: %v)", accountID, err, rollbackErr, applyRollbackErr)
+				}
+				return DeleteAccountResult{}, fmt.Errorf("delete secrets for account %s: %v (apply rollback failed: %v)", accountID, err, applyRollbackErr)
+			}
+		}
+		if rollbackErr != nil {
+			return DeleteAccountResult{}, fmt.Errorf("delete secrets for account %s: %v (state rollback failed: %v)", accountID, err, rollbackErr)
+		}
+		return DeleteAccountResult{}, fmt.Errorf("delete secrets for account %s: %w", accountID, err)
+	}
+
+	return result, nil
 }
 
 func (m *Manager) Status(ctx context.Context) (StatusSnapshot, error) {
@@ -561,6 +667,13 @@ func (m *Manager) applyAccount(ctx context.Context, account model.Account) error
 	return m.applier.Apply(ctx, account, secretsData)
 }
 
+func (m *Manager) clearAppliedAccount(ctx context.Context) error {
+	if m.applier == nil {
+		return nil
+	}
+	return m.applier.Clear(ctx)
+}
+
 func orderedCandidates(state model.AppState, activeID string) []string {
 	ids := make([]string, 0, len(state.Accounts))
 	for id := range state.Accounts {
@@ -626,6 +739,15 @@ func shouldSwitch(statusCode int, message string) bool {
 		}
 	}
 	return statusCode == 429 || statusCode == 503 || statusCode == 500
+}
+
+func cloneAppState(in model.AppState) model.AppState {
+	out := in
+	out.Accounts = make(map[string]model.Account, len(in.Accounts))
+	for id, account := range in.Accounts {
+		out.Accounts[id] = account
+	}
+	return out
 }
 
 func shouldMarkNeedReauth(err error) bool {

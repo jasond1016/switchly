@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import { MESSAGES } from "../../lib/messages";
-import { type ApiRequest, type CodexImportCandidateResponse, type CodexImportResponse, type RoutingStrategy, type SyncNotice, toErrorMessage } from "../../lib/switchly";
+import { type ApiRequest, type CodexImportCandidateResponse, type CodexImportResponse, type DeleteAccountResponse, type RoutingStrategy, type SyncNotice, toErrorMessage } from "../../lib/switchly";
 
 type RunQuotaSync = (opts?: { accountID?: string; silent?: boolean; showBusy?: boolean }) => Promise<boolean>;
 
@@ -20,6 +20,7 @@ export function useDashboardActions({ apiRequest, loadStatus, reloadDashboard, r
 
   const importDismissedRef = useRef(false);
   const useAccountInFlightRef = useRef(false);
+  const deleteAccountInFlightRef = useRef(false);
   const strategyInFlightRef = useRef(false);
   const simulateInFlightRef = useRef(false);
   const importInFlightRef = useRef(false);
@@ -72,6 +73,33 @@ export function useDashboardActions({ apiRequest, loadStatus, reloadDashboard, r
           await refreshDashboard();
           await runQuotaSync({ accountID: id, silent: true });
           onNotice({ tone: "success", message: MESSAGES.dashboard.switchedAccount(id) });
+        } catch (error) {
+          onError(toErrorMessage(error));
+        }
+      });
+    },
+    [apiRequest, onError, onNotice, refreshDashboard, runQuotaSync, runSingleFlight],
+  );
+
+  const onDeleteAccount = useCallback(
+    async (id: string) => {
+      await runSingleFlight(deleteAccountInFlightRef, async () => {
+        onError("");
+        try {
+          const out = await apiRequest<DeleteAccountResponse>(`/v1/accounts/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          });
+          await refreshDashboard();
+          if (out.switched && out.switched_to_account_id) {
+            await runQuotaSync({ accountID: out.switched_to_account_id, silent: true });
+            onNotice({ tone: "success", message: MESSAGES.dashboard.deletedAccountAndSwitched(out.deleted_account_id, out.switched_to_account_id) });
+            return;
+          }
+          if (out.was_active && !out.active_account_id) {
+            onNotice({ tone: "warning", message: MESSAGES.dashboard.deletedActiveAccountWithoutReplacement(out.deleted_account_id) });
+            return;
+          }
+          onNotice({ tone: "success", message: MESSAGES.dashboard.deletedAccount(out.deleted_account_id) });
         } catch (error) {
           onError(toErrorMessage(error));
         }
@@ -144,6 +172,7 @@ export function useDashboardActions({ apiRequest, loadStatus, reloadDashboard, r
     codexImportBusy,
     discoverCodexImportCandidate,
     onUseAccount,
+    onDeleteAccount,
     onStrategy,
     onSimulateLimit,
     onImportLocalCodexAccount,

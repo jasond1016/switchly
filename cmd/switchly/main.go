@@ -126,6 +126,20 @@ func runAccount(c *apiClient, args []string) error {
 			return err
 		}
 		return printJSON(out)
+	case "delete":
+		fs := flag.NewFlagSet("account delete", flag.ContinueOnError)
+		id := fs.String("id", "", "account id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*id) == "" {
+			return fmt.Errorf("--id is required")
+		}
+		var out map[string]interface{}
+		if err := c.delete(fmt.Sprintf("/v1/accounts/%s", *id), &out); err != nil {
+			return err
+		}
+		return printJSON(out)
 	case "apply":
 		fs := flag.NewFlagSet("account apply", flag.ContinueOnError)
 		id := fs.String("id", "", "account id (default: current active account)")
@@ -662,6 +676,10 @@ func (c *apiClient) patch(path string, payload interface{}, out interface{}) err
 	return c.do(http.MethodPatch, path, payload, out)
 }
 
+func (c *apiClient) delete(path string, out interface{}) error {
+	return c.do(http.MethodDelete, path, nil, out)
+}
+
 func (c *apiClient) do(method, path string, payload interface{}, out interface{}) error {
 	var body io.Reader
 	if payload != nil {
@@ -700,6 +718,7 @@ func printUsage() {
 	fmt.Println("  account add --id <id> --provider codex --access-token <token> [--refresh-token <token>] [--email <email>]")
 	fmt.Println("  account list")
 	fmt.Println("  account use --id <id>")
+	fmt.Println("  account delete --id <id>")
 	fmt.Println("  account apply [--id <id>]")
 	fmt.Println("  account import-codex [--overwrite-existing=true]")
 	fmt.Println("  quota sync [--id <id>]")

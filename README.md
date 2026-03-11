@@ -48,6 +48,7 @@ switchly status
 switchly account add --id <id> --provider codex --access-token <token> [--refresh-token <token>] [--email <email>]
 switchly account list
 switchly account use --id <id>
+switchly account delete --id <id>
 switchly account apply [--id <id>]
 switchly account import-codex [--overwrite-existing=true]
 switchly quota sync [--id <id>]
@@ -133,6 +134,8 @@ pnpm tauri dev
 - If your Windows blocks localhost callback port `1455`, use device auth: `switchly oauth login --provider codex --method device`.
 - `codex` refresh flow is implemented using `https://auth.openai.com/oauth/token`.
 - `account use` and automatic quota-based switching will apply the selected Codex account tokens to `~/.codex/auth.json`.
+- `account delete` removes stored metadata and secrets for the target account.
+- If the deleted account is currently active, Switchly will try to auto-switch to another available account first; if none is available, it clears the active account and removes the applied Codex tokens from `~/.codex/auth.json`.
 - `account apply` can be used to force re-apply the active account (or a specific account with `--id`).
 - `account import-codex` imports the currently logged-in Codex CLI account from `~/.codex/auth.json`.
 - Daemon API includes `/v1/daemon/info`, `/v1/daemon/shutdown`, `/v1/daemon/restart`.

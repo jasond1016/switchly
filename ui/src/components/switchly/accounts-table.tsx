@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, Globe, Loader2, Play, RefreshCcw, RotateCcw, Square, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Globe, Loader2, Play, RefreshCcw, RotateCcw, Square, Trash2, XCircle } from "lucide-react";
 import { fmtTime, oauthText, REFRESH_CADENCE_OPTIONS, type Account, type OAuthSession, type OAuthUIStatus, type RefreshCadence, type SyncNotice, toneClass } from "../../lib/switchly";
 import { QuotaCell } from "./quota-cell";
 
@@ -18,6 +18,7 @@ type AccountsTableProps = {
   onOAuthLogin: () => void;
   onOAuthCancel: () => void;
   onUseAccount: (id: string) => void;
+  onDeleteAccount: (id: string) => void;
   onOAuthReauth: () => void;
 };
 
@@ -50,6 +51,7 @@ export function AccountsTable({
   onOAuthLogin,
   onOAuthCancel,
   onUseAccount,
+  onDeleteAccount,
   onOAuthReauth,
 }: AccountsTableProps) {
   const oauthToneClass =
@@ -181,6 +183,9 @@ export function AccountsTable({
               `上次刷新: ${fmtTime(acc.last_refresh_at)}`,
               `额度更新: ${fmtTime(acc.quota.last_updated)}`,
             ].join("\n");
+            const deleteMessage = active
+              ? `确认删除当前使用中的账号 ${acc.id} 吗？如果没有可切换账号，删除后当前将没有活跃账号。`
+              : `确认删除账号 ${acc.id} 吗？`;
 
             return (
               <tr
@@ -259,6 +264,19 @@ export function AccountsTable({
                         重新授权
                       </button>
                     ) : null}
+                    <button
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 text-[10px] font-medium text-destructive transition hover:bg-destructive/10"
+                      onClick={() => {
+                        const confirmed = typeof window === "undefined" ? true : window.confirm(deleteMessage);
+                        if (!confirmed) {
+                          return;
+                        }
+                        onDeleteAccount(acc.id);
+                      }}
+                    >
+                      <Trash2 className="size-2.5" />
+                      删除
+                    </button>
                   </div>
                 </td>
               </tr>

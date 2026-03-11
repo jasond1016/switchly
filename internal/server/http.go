@@ -263,13 +263,23 @@ func (s *APIServer) handleCodexImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) handleAccountDetail(w http.ResponseWriter, r *http.Request) {
-	accountID, action, err := parseAccountActionPath(r.URL.Path)
+	accountID, action, err := parseAccountPath(r.URL.Path)
 	if err != nil {
 		writeError(w, http.StatusNotFound, errors.New("not found"))
 		return
 	}
 
 	switch action {
+	case "":
+		if !requireMethod(w, r, http.MethodDelete) {
+			return
+		}
+		result, err := s.manager.DeleteAccount(r.Context(), accountID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	case "activate":
 		if !requireMethod(w, r, http.MethodPost) {
 			return
@@ -484,13 +494,19 @@ func parseOptionalTime(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339, s)
 }
 
-func parseAccountActionPath(path string) (string, string, error) {
+func parseAccountPath(path string) (string, string, error) {
 	trimmed := strings.TrimPrefix(path, "/v1/accounts/")
 	parts := strings.Split(trimmed, "/")
-	if len(parts) < 2 {
+	if len(parts) < 1 || strings.TrimSpace(parts[0]) == "" {
 		return "", "", errors.New("not found")
 	}
-	return parts[0], parts[1], nil
+	if len(parts) == 1 {
+		return parts[0], "", nil
+	}
+	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+		return parts[0], parts[1], nil
+	}
+	return "", "", errors.New("not found")
 }
 
 func decodeJSONBody(r *http.Request, dst interface{}, allowEmpty bool) error {

@@ -2,10 +2,14 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"switchly/internal/core"
+	"switchly/internal/model"
 )
 
 func TestCORSMiddlewarePreflight(t *testing.T) {
@@ -48,7 +52,7 @@ func TestCORSMiddlewarePassThrough(t *testing.T) {
 	}
 }
 
-func TestParseAccountActionPath(t *testing.T) {
+func TestParseAccountPath(t *testing.T) {
 	tests := []struct {
 		name      string
 		path      string
@@ -56,14 +60,15 @@ func TestParseAccountActionPath(t *testing.T) {
 		wantAct   string
 		expectErr bool
 	}{
+		{name: "delete path", path: "/v1/accounts/acc-0", wantID: "acc-0", wantAct: ""},
 		{name: "activate path", path: "/v1/accounts/acc-1/activate", wantID: "acc-1", wantAct: "activate"},
 		{name: "quota path", path: "/v1/accounts/acc-2/quota", wantID: "acc-2", wantAct: "quota"},
-		{name: "missing action", path: "/v1/accounts/acc-2", expectErr: true},
+		{name: "trailing slash", path: "/v1/accounts/acc-2/", expectErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			id, act, err := parseAccountActionPath(tt.path)
+			id, act, err := parseAccountPath(tt.path)
 			if tt.expectErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -77,6 +82,40 @@ func TestParseAccountActionPath(t *testing.T) {
 				t.Fatalf("unexpected parse result: id=%q action=%q", id, act)
 			}
 		})
+	}
+}
+
+func TestHandleAccountDetailDelete(t *testing.T) {
+	state := &testStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "acc-a",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"acc-a": {ID: "acc-a", Provider: "codex", Status: model.AccountReady},
+			},
+		},
+	}
+	secrets := &testSecretsStore{
+		data: map[string]model.AuthSecrets{
+			"acc-a": {AccessToken: "token-a"},
+		},
+	}
+	manager := core.NewManager(state, secrets, core.WithActiveAccountApplier(deleteTestApplier{}))
+	server := New(manager, nil, nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/accounts/acc-a", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if state.state.ActiveAccountID != "" {
+		t.Fatalf("expected active account cleared, got %q", state.state.ActiveAccountID)
+	}
+	if _, ok := state.state.Accounts["acc-a"]; ok {
+		t.Fatal("expected deleted account removed from state")
 	}
 }
 
@@ -119,4 +158,14 @@ func TestRequireMethod(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected %d, got %d", http.StatusMethodNotAllowed, rec.Code)
 	}
+}
+
+type deleteTestApplier struct{}
+
+func (deleteTestApplier) Apply(context.Context, model.Account, model.AuthSecrets) error {
+	return nil
+}
+
+func (deleteTestApplier) Clear(context.Context) error {
+	return nil
 }

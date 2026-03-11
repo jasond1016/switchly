@@ -145,6 +145,42 @@ func TestRunAccountImportCodexAlreadyExistsAndOverwriteDisabled(t *testing.T) {
 	}
 }
 
+func TestRunAccountDelete(t *testing.T) {
+	deleteCalls := 0
+	client := &apiClient{
+		baseURL: "http://switchly.local",
+		http: &http.Client{
+			Timeout: time.Second,
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				switch {
+				case r.Method == http.MethodDelete && r.URL.Path == "/v1/accounts/acc-9":
+					deleteCalls++
+					return jsonResponse(http.StatusOK, map[string]any{
+						"deleted_account_id": "acc-9",
+						"was_active":         true,
+						"switched":           false,
+					}), nil
+				default:
+					return jsonResponse(http.StatusNotFound, map[string]any{"error": "not found"}), nil
+				}
+			}),
+		},
+	}
+
+	out := captureStdout(t, func() {
+		if err := runAccount(client, []string{"delete", "--id", "acc-9"}); err != nil {
+			t.Fatalf("runAccount delete: %v", err)
+		}
+	})
+
+	if deleteCalls != 1 {
+		t.Fatalf("expected 1 delete call, got %d", deleteCalls)
+	}
+	if !strings.Contains(out, `"deleted_account_id": "acc-9"`) {
+		t.Fatalf("expected delete output, got: %s", out)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 

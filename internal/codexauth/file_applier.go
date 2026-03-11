@@ -72,3 +72,53 @@ func (a *FileApplier) Apply(_ context.Context, account model.Account, secrets mo
 	}
 	return nil
 }
+
+func (a *FileApplier) Clear(_ context.Context) error {
+	if strings.TrimSpace(a.path) == "" {
+		return errors.New("codex auth file path is empty")
+	}
+	if _, err := os.Stat(a.path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat codex auth file: %w", err)
+	}
+
+	doc, err := a.loadDocument()
+	if err != nil {
+		return err
+	}
+	delete(doc, "tokens")
+	return a.writeDocument(doc)
+}
+
+func (a *FileApplier) loadDocument() (map[string]any, error) {
+	doc := map[string]any{}
+	if data, err := os.ReadFile(a.path); err == nil && len(data) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return nil, fmt.Errorf("decode codex auth file: %w", err)
+		}
+	} else if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return doc, nil
+		}
+		return nil, fmt.Errorf("read codex auth file: %w", err)
+	}
+	return doc, nil
+}
+
+func (a *FileApplier) writeDocument(doc map[string]any) error {
+	dir := filepath.Dir(a.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create codex auth dir: %w", err)
+	}
+
+	payload, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode codex auth file: %w", err)
+	}
+	if err := os.WriteFile(a.path, payload, 0o600); err != nil {
+		return fmt.Errorf("write codex auth file: %w", err)
+	}
+	return nil
+}
