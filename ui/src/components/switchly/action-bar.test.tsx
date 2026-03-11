@@ -3,30 +3,21 @@ import { describe, expect, it, vi } from "vitest";
 import { ActionBar } from "./action-bar";
 
 function renderActionBar() {
-  const onStrategyChange = vi.fn();
   const onQuotaRefreshCadenceChange = vi.fn();
-  const onSyncQuota = vi.fn();
   const onSyncQuotaAll = vi.fn();
-  const onSimulateLimit = vi.fn();
 
   const view = render(
     <ActionBar
-      strategy="round-robin"
       quotaRefreshCadence="manual"
-      quotaSyncBusy={false}
       quotaSyncAllBusy={false}
-      simBusy={false}
       syncNotice={null}
       error=""
-      onStrategyChange={onStrategyChange}
       onQuotaRefreshCadenceChange={onQuotaRefreshCadenceChange}
-      onSyncQuota={onSyncQuota}
       onSyncQuotaAll={onSyncQuotaAll}
-      onSimulateLimit={onSimulateLimit}
     />,
   );
 
-  return { view, onQuotaRefreshCadenceChange };
+  return { view, onQuotaRefreshCadenceChange, onSyncQuotaAll };
 }
 
 describe("ActionBar", () => {
@@ -46,5 +37,12 @@ describe("ActionBar", () => {
     const icon = view.container.querySelector("svg.lucide-chevron-down");
 
     expect(icon).not.toBeNull();
+  });
+
+  it("renders only sync-all action and emits click", () => {
+    const { onSyncQuotaAll } = renderActionBar();
+
+    fireEvent.click(screen.getByRole("button", { name: /Sync All Quotas/i }));
+    expect(onSyncQuotaAll).toHaveBeenCalledTimes(1);
   });
 });

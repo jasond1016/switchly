@@ -18,6 +18,13 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
 
   const { isMountedRef, cancel: cancelPoll, schedule: schedulePoll } = useMountedTimeout();
 
+  const cancelOAuth = useCallback(() => {
+    cancelPoll();
+    setOAuthPolling(false);
+    setOAuthSession(null);
+    onError("");
+  }, [cancelPoll, onError]);
+
   const startOAuthPolling = useCallback(
     (state: string) => {
       cancelPoll();
@@ -80,5 +87,6 @@ export function useOAuthFlow({ apiRequest, refreshAll, runQuotaSync, onError }: 
     oauthSession,
     oauthPolling,
     loginWithBrowser,
+    cancelOAuth,
   };
 }

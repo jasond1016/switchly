@@ -466,6 +466,53 @@ func TestSyncQuotaFromCodexAPIReturnsFetcherError(t *testing.T) {
 	if got := err.Error(); !strings.Contains(got, "usage api down") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if got := state.state.Accounts["A"].Status; got != model.AccountReady {
+		t.Fatalf("generic fetch errors should keep ready status, got %s", got)
+	}
+}
+
+func TestSyncQuotaFromCodexAPIMarksNeedReauthWhenFetcherReturnsUnauthorized(t *testing.T) {
+	state := &fakeStateStore{
+		state: model.AppState{
+			Version:         1,
+			ActiveAccountID: "A",
+			Strategy:        model.RoutingRoundRobin,
+			Accounts: map[string]model.Account{
+				"A": {
+					ID:       "A",
+					Provider: "codex",
+					Status:   model.AccountReady,
+				},
+			},
+		},
+	}
+	secrets := &fakeSecretStore{
+		entries: map[string]model.AuthSecrets{
+			"A": {
+				AccessToken:     "token-a",
+				AccountID:       "acct-a",
+				AccessExpiresAt: time.Now().UTC().Add(5 * time.Minute),
+			},
+		},
+	}
+	mgr := NewManager(
+		state,
+		secrets,
+		WithCodexQuotaFetcher(func(ctx context.Context, httpClient *http.Client, accessToken, accountID string) (quota.Snapshot, error) {
+			return quota.Snapshot{}, errors.New("quota usage request failed: status 401")
+		}),
+	)
+
+	_, err := mgr.SyncQuotaFromCodexAPI(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected fetcher error, got nil")
+	}
+	if got := state.state.Accounts["A"].Status; got != model.AccountNeedReauth {
+		t.Fatalf("expected need_reauth, got %s", got)
+	}
+	if got := state.state.Accounts["A"].LastError; !strings.Contains(got, "status 401") {
+		t.Fatalf("expected last error to be persisted, got %q", got)
+	}
 }
 
 func TestSyncQuotaFromCodexAPIMarksNeedReauthWhenRefreshFails(t *testing.T) {
