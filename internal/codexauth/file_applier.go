@@ -16,16 +16,25 @@ type FileApplier struct {
 	path string
 }
 
+const codexAuthFilePathEnv = "SWITCHLY_CODEX_AUTH_FILE"
+
 func NewDefaultFileApplier() *FileApplier {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return &FileApplier{}
-	}
-	return &FileApplier{path: filepath.Join(home, ".codex", "auth.json")}
+	return &FileApplier{path: defaultAuthFilePath()}
 }
 
 func NewFileApplier(path string) *FileApplier {
 	return &FileApplier{path: strings.TrimSpace(path)}
+}
+
+func defaultAuthFilePath() string {
+	if explicit := strings.TrimSpace(os.Getenv(codexAuthFilePathEnv)); explicit != "" {
+		return explicit
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".codex", "auth.json")
 }
 
 func (a *FileApplier) Apply(_ context.Context, account model.Account, secrets model.AuthSecrets) error {

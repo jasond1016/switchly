@@ -10,6 +10,31 @@ import (
 	"switchly/internal/model"
 )
 
+func TestDefaultFileApplierUsesGlobalPath(t *testing.T) {
+	t.Setenv(codexAuthFilePathEnv, "")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("home: %v", err)
+	}
+
+	applier := NewDefaultFileApplier()
+	want := filepath.Join(home, ".codex", "auth.json")
+	if applier.path != want {
+		t.Fatalf("default path mismatch: got %q want %q", applier.path, want)
+	}
+}
+
+func TestDefaultFileApplierUsesEnvOverride(t *testing.T) {
+	explicit := filepath.Join(t.TempDir(), "custom", "auth.json")
+	t.Setenv(codexAuthFilePathEnv, explicit)
+
+	applier := NewDefaultFileApplier()
+	if applier.path != explicit {
+		t.Fatalf("default path mismatch: got %q want %q", applier.path, explicit)
+	}
+}
+
 func TestApplyUpdatesTokensAndPreservesOtherFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	seed := map[string]any{

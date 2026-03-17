@@ -133,9 +133,10 @@ pnpm tauri dev
 - OAuth browser login flow is implemented for Codex (`/v1/oauth/start`, `/v1/oauth/callback`, `/v1/oauth/status`).
 - If your Windows blocks localhost callback port `1455`, use device auth: `switchly oauth login --provider codex --method device`.
 - `codex` refresh flow is implemented using `https://auth.openai.com/oauth/token`.
-- `account use` and automatic quota-based switching will apply the selected Codex account tokens to `~/.codex/auth.json`.
+- `account use` and automatic quota-based switching will apply the selected Codex account tokens to `~/.codex/auth.json` by default.
+- Set `SWITCHLY_CODEX_AUTH_FILE` to override the target auth file path explicitly (for example, per-project auth files).
 - `account delete` removes stored metadata and secrets for the target account.
-- If the deleted account is currently active, Switchly will try to auto-switch to another available account first; if none is available, it clears the active account and removes the applied Codex tokens from `~/.codex/auth.json`.
+- If the deleted account is currently active, Switchly will try to auto-switch to another available account first; if none is available, it clears the active account and removes the applied Codex tokens from the same configured auth file.
 - `account apply` can be used to force re-apply the active account (or a specific account with `--id`).
 - `account import-codex` imports the currently logged-in Codex CLI account from `~/.codex/auth.json`.
 - Daemon API includes `/v1/daemon/info`, `/v1/daemon/shutdown`, `/v1/daemon/restart`.
